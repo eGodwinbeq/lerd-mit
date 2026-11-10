@@ -6,6 +6,9 @@ After=default.target
 Type=notify
 ExecStart=%h/.local/bin/lerd serve-ui
 Restart=on-failure
+# Port 7073 can stay taken for seconds after a WSL restart; spaced retries
+# outlast systemd's 5 starts in 10s limit, so the dashboard comes up anyway.
+RestartSec=3
 
 [Install]
 WantedBy=default.target

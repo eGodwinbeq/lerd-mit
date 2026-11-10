@@ -275,6 +275,10 @@ The agent listens on `127.0.0.1:53` and sends itself a real query when it starts
 Stop that client, or keep it and add each site to `C:\Windows\System32\drivers\etc\hosts` as `127.0.0.1 yoursite.test`. Mirrored networking still reaches nginx, and only name resolution was failing, so that is enough.
 :::
 
+::: details The installer says the dashboard did not answer on 127.0.0.1:7073
+On the first restart with mirrored networking, Windows can hold port 7073 for a few seconds, and an older lerd gave up starting the dashboard before it was free. Current lerd keeps retrying every three seconds. On an older one, run `systemctl --user restart lerd-ui` inside the distro.
+:::
+
 ::: details `lerd wsl:setup` says `lerd.exe` is not installed
 It rides in the release archive, so an install that did not come through the installer can be without it, and `lerd doctor` warns about it under WSL2. Run `lerd update`, which fetches it even when lerd is already on the latest version, then run `lerd wsl:setup` again. A lerd owned by a package manager cannot be repaired this way, so install it with the installer instead.
 :::

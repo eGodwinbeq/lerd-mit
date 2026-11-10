@@ -40,3 +40,16 @@ func containsLine(content, line string) bool {
 	}
 	return false
 }
+
+// lerd-ui binds port 7073, which under WSL's mirrored networking Windows can
+// still hold for a few seconds after a restart. Its restarts must be spaced so
+// systemd's default limit, 5 starts in 10s, never gives up on the dashboard.
+func TestUIUnitKeepsRetryingABusyPort(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("units", "lerd-ui.service"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsLine(string(data), "RestartSec=3") {
+		t.Errorf("lerd-ui.service: want RestartSec=3, so five starts span more than the 10s limit\n--- file ---\n%s", data)
+	}
+}
