@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseWindowsProbe(t *testing.T) {
@@ -117,24 +118,38 @@ func TestWindowsSideStale(t *testing.T) {
 	linux := t.TempDir()
 	win := t.TempDir()
 	exe := filepath.Join(linux, "lerd.exe")
-	write := func(p, s string) {
+	base := time.Now().Add(-time.Hour)
+	write := func(p, s string, age time.Duration) {
 		t.Helper()
 		if err := os.WriteFile(p, []byte(s), 0o755); err != nil {
 			t.Fatal(err)
 		}
+		if err := os.Chtimes(p, base.Add(age), base.Add(age)); err != nil {
+			t.Fatal(err)
+		}
 	}
-	write(exe, "v2")
-	write(filepath.Join(win, "lerd.exe"), "v2")
-	write(filepath.Join(win, "php.exe"), "v2")
+	winExe, php := filepath.Join(win, "lerd.exe"), filepath.Join(win, "php.exe")
+	write(exe, "v2", 0)
+	write(winExe, "v2", time.Minute)
+	write(php, "v2", 2*time.Minute)
 	if windowsSideStale(exe, win, []string{"php"}) {
-		t.Error("matching lerd.exe and every twin present is not stale")
+		t.Error("a current lerd.exe and twin are not stale")
 	}
 	if !windowsSideStale(exe, win, []string{"php", "composer"}) {
 		t.Error("a missing composer.exe twin is stale")
 	}
-	write(filepath.Join(win, "lerd.exe"), "v1")
+	write(php, "v2", -time.Minute)
 	if !windowsSideStale(exe, win, []string{"php"}) {
-		t.Error("an older lerd.exe on Windows is stale")
+		t.Error("a php.exe copied before the current lerd.exe is stale")
+	}
+	write(php, "v2", 2*time.Minute)
+	write(winExe, "v2", -time.Minute)
+	if !windowsSideStale(exe, win, []string{"php"}) {
+		t.Error("a lerd.exe on Windows older than this lerd's is stale")
+	}
+	write(winExe, "v10", time.Minute)
+	if !windowsSideStale(exe, win, nil) {
+		t.Error("a lerd.exe of another size is stale")
 	}
 	if windowsSideStale(filepath.Join(linux, "missing.exe"), win, nil) {
 		t.Error("without a lerd.exe beside lerd there is nothing to refresh from")

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/pem"
@@ -151,23 +150,31 @@ func caThumbprint(pemPath string) (string, error) {
 	return strings.ToUpper(hex.EncodeToString(sum[:])), nil
 }
 
-// windowsSideStale reports a Windows side behind this lerd: its lerd.exe
-// differs from the one beside lerd, or a shim has no .exe twin yet.
+// windowsSideStale reports a Windows side behind this lerd: its lerd.exe, or a
+// shim's .exe twin, is missing or not a current copy of the program it mirrors.
 func windowsSideStale(lerdExe, winBin string, shims []string) bool {
-	want, err := os.ReadFile(lerdExe)
+	src, err := os.Stat(lerdExe)
 	if err != nil {
 		return false
 	}
-	have, err := os.ReadFile(filepath.Join(winBin, "lerd.exe"))
-	if err != nil || !bytes.Equal(have, want) {
+	exe, err := os.Stat(filepath.Join(winBin, "lerd.exe"))
+	if err != nil || !copyOf(exe, src) {
 		return true
 	}
 	for _, n := range shims {
-		if _, err := os.Stat(filepath.Join(winBin, n+".exe")); err != nil {
+		twin, err := os.Stat(filepath.Join(winBin, n+".exe"))
+		if err != nil || !(os.SameFile(twin, exe) || copyOf(twin, exe)) {
 			return true
 		}
 	}
 	return false
+}
+
+// copyOf compares metadata rather than reading binaries over WSL's slow mount:
+// a copy is only ever written from its source, so it is current when it is the
+// same size and not older.
+func copyOf(dst, src os.FileInfo) bool {
+	return dst.Size() == src.Size() && !dst.ModTime().Before(src.ModTime())
 }
 
 // linuxPathOf is the path the distro reaches a Windows path at, "" when wslpath

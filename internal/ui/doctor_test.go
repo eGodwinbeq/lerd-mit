@@ -149,3 +149,55 @@ func readFixEvents(t *testing.T, body string) []doctorFixEvent {
 	}
 	return events
 }
+
+func TestHandleDoctorShowsInstallAsManual(t *testing.T) {
+	stubDoctor(t, doctorReportWith(autoFinding("lerd services installed", "install")), func(*cli.DoctorFix, io.Writer) error {
+		t.Fatal("the install fix restarts the dashboard and must not run from it")
+		return nil
+	})
+	w := httptest.NewRecorder()
+	handleDoctor(w, localRequest(http.MethodGet, "/api/doctor", ""))
+	var rep cli.DoctorReport
+	if err := json.Unmarshal(w.Body.Bytes(), &rep); err != nil {
+		t.Fatal(err)
+	}
+	if fx := rep.Findings[0].Fix; fx == nil || fx.Tier != cli.FixManual || !strings.Contains(fx.Label, "lerd install") {
+		t.Errorf("install should be offered as a command to run, got %+v", fx)
+	}
+	w = httptest.NewRecorder()
+	handleDoctorFix(w, localRequest(http.MethodPost, "/api/doctor/fix", `{"key":"install","name":"lerd services installed"}`))
+	if w.Code == http.StatusOK {
+		t.Error("the install fix must be refused from the dashboard")
+	}
+}
+
+func TestHandleDoctorFixTellsSameNamesApartByMessage(t *testing.T) {
+	a := autoFinding("parked dir: /home/user/projects/cli...", "mkdir")
+	a.Message, a.Fix.Arg = "missing /home/user/projects/clients-a", "/home/user/projects/clients-a"
+	b := autoFinding("parked dir: /home/user/projects/cli...", "mkdir")
+	b.Message, b.Fix.Arg = "missing /home/user/projects/clients-b", "/home/user/projects/clients-b"
+	var gotArg string
+	stubDoctor(t, doctorReportWith(a, b), func(f *cli.DoctorFix, _ io.Writer) error {
+		gotArg = f.Arg
+		return nil
+	})
+	w := httptest.NewRecorder()
+	handleDoctorFix(w, localRequest(http.MethodPost, "/api/doctor/fix", `{"key":"mkdir","name":"parked dir: /home/user/projects/cli...","message":"missing /home/user/projects/clients-b"}`))
+	if gotArg != "/home/user/projects/clients-b" {
+		t.Errorf("fixed %q, want the second finding's target", gotArg)
+	}
+}
+
+func TestHandleDoctorFixRefusesWhileAnotherRuns(t *testing.T) {
+	stubDoctor(t, doctorReportWith(autoFinding("Windows agent running", "windows-agent")), func(*cli.DoctorFix, io.Writer) error {
+		t.Fatal("no fix should run while another holds the lock")
+		return nil
+	})
+	fixMu.Lock()
+	defer fixMu.Unlock()
+	w := httptest.NewRecorder()
+	handleDoctorFix(w, localRequest(http.MethodPost, "/api/doctor/fix", `{"key":"windows-agent","name":"Windows agent running"}`))
+	if w.Code != http.StatusConflict {
+		t.Errorf("status %d, want 409 while another fix runs", w.Code)
+	}
+}

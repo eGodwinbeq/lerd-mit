@@ -58,7 +58,7 @@ describe('applyMachineFix', () => {
     const [url, init] = fn.mock.calls[0];
     expect(url).toBe('/api/doctor/fix');
     expect(init.method).toBe('POST');
-    expect(JSON.parse(init.body)).toEqual({ key: 'windows-agent', name: 'Windows agent running' });
+    expect(JSON.parse(init.body)).toEqual({ key: 'windows-agent', name: 'Windows agent running', message: '' });
   });
 
   it('reports the error a failed fix streams', async () => {

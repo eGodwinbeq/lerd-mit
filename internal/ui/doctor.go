@@ -17,28 +17,32 @@ var (
 	applyDoctorFix  = cli.ApplyDoctorFix
 )
 
-// doctorMu keeps one diagnosis or fix running at a time: a fix re-runs the
-// doctor to find its target, and two repairs racing on one file help no one.
-var doctorMu sync.Mutex
+// fixMu keeps one fix running at a time, since two repairs racing on one file
+// help no one. Diagnosis only reads, so it never waits on a fix.
+var fixMu sync.Mutex
 
 func handleDoctor(w http.ResponseWriter, r *http.Request) {
 	if !hasHostActionAuthority(r) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	doctorMu.Lock()
-	defer doctorMu.Unlock()
 	rep, err := runDoctorReport()
 	if err != nil {
 		writeJSON(w, map[string]any{"error": err.Error()})
 		return
 	}
+	for i := range rep.Findings {
+		if cli.RestartsDashboard(rep.Findings[i].Fix) {
+			rep.Findings[i].Fix = &cli.DoctorFix{Tier: cli.FixManual, Label: "run `lerd install` in a terminal, it restarts the dashboard"}
+		}
+	}
 	writeJSON(w, rep)
 }
 
 type doctorFixRequest struct {
-	Key  string `json:"key"`
-	Name string `json:"name"`
+	Key     string `json:"key"`
+	Name    string `json:"name"`
+	Message string `json:"message"`
 }
 
 type doctorFixEvent struct {
@@ -47,9 +51,8 @@ type doctorFixEvent struct {
 	Error string `json:"error,omitempty"`
 }
 
-// handleDoctorFix applies one automatic fix the doctor still reports. The
-// client names it by key and finding; its target comes from a fresh diagnosis,
-// so a request can never point a fix at a path or user of its own choosing.
+// handleDoctorFix applies one automatic fix the doctor still reports, named by
+// key and finding; its target comes from a fresh diagnosis, never the client.
 // Local only: a fix can raise a Windows prompt on this machine's desktop.
 func handleDoctorFix(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -65,15 +68,18 @@ func handleDoctorFix(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "expected {key, name}", http.StatusBadRequest)
 		return
 	}
-	doctorMu.Lock()
-	defer doctorMu.Unlock()
+	if !fixMu.TryLock() {
+		http.Error(w, "another fix is running, wait for it to finish", http.StatusConflict)
+		return
+	}
+	defer fixMu.Unlock()
 	rep, err := runDoctorReport()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	fix := findAutoFix(rep, req.Key, req.Name)
-	if fix == nil {
+	fix := findAutoFix(rep, req)
+	if fix == nil || cli.RestartsDashboard(fix) {
 		http.Error(w, "that fix no longer applies, run the checks again", http.StatusConflict)
 		return
 	}
@@ -88,9 +94,11 @@ func handleDoctorFix(w http.ResponseWriter, r *http.Request) {
 	writeLine(doctorFixEvent{Phase: "done"})
 }
 
-func findAutoFix(rep cli.DoctorReport, key, name string) *cli.DoctorFix {
+// findAutoFix matches the message as well as the name, since a name can be cut
+// short and repeat, two long parked directories say.
+func findAutoFix(rep cli.DoctorReport, req doctorFixRequest) *cli.DoctorFix {
 	for _, f := range rep.Findings {
-		if f.Fix != nil && f.Fix.Tier == cli.FixAuto && f.Fix.Key == key && f.Name == name {
+		if f.Fix != nil && f.Fix.Tier == cli.FixAuto && f.Fix.Key == req.Key && f.Name == req.Name && f.Message == req.Message {
 			return f.Fix
 		}
 	}

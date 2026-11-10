@@ -29,9 +29,10 @@ func (c Config) String() string {
 	return fmt.Sprintf("distro=%s\nlerd=%s\ntld=%s\nshims=%s\nmount=%s\nuser=%s\n", c.Distro, c.Lerd, c.TLD, c.Shims, c.Mount, c.User)
 }
 
-// DebugEnv are the variables an IDE sets to debug or profile a PHP run. lerd
-// forwards them into the PHP container, and lerd.exe across WSL with WSLENV.
-var DebugEnv = []string{"XDEBUG_MODE", "XDEBUG_CONFIG", "XDEBUG_SESSION", "XDEBUG_TRIGGER", "PHP_IDE_CONFIG"}
+// DebugEnv are the variables an IDE sets to start a debug session. lerd forwards
+// them into the PHP container, and lerd.exe across WSL with WSLENV. XDEBUG_MODE
+// stays out, so a value exported for host tools never overrides `lerd xdebug`.
+var DebugEnv = []string{"XDEBUG_CONFIG", "XDEBUG_SESSION", "XDEBUG_TRIGGER", "PHP_IDE_CONFIG"}
 
 // WSLEnv is WSLENV with every DebugEnv name that set reports as set added, so
 // wsl.exe carries them into the distro. Names already listed stay as they are.

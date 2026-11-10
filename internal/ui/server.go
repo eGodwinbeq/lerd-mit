@@ -5336,7 +5336,7 @@ func startPHPBuildStream(w http.ResponseWriter) (*sseLineWriter, func(map[string
 		fmt.Fprintf(w, "event: done\ndata: %s\n\n", mustJSON(payload))
 		flusher.Flush()
 	}
-	return &sseLineWriter{w: w, f: flusher}, done, true
+	return newSSELineWriter(w, flusher), done, true
 }
 
 // handlePHPInstall answers POST /api/php-versions/install?version=8.3 by
@@ -6972,38 +6972,18 @@ func isSiteCheckout(sitePath, dir string) bool {
 
 // sseLineWriter buffers writes into newline-delimited SSE `data:` frames so
 // arbitrary git/composer output streams cleanly to the browser.
-type sseLineWriter struct {
-	w   http.ResponseWriter
-	f   http.Flusher
-	buf []byte
-}
+type sseLineWriter struct{ *lineEmitter }
 
-func (s *sseLineWriter) Write(p []byte) (int, error) {
-	s.buf = append(s.buf, p...)
-	for {
-		i := bytes.IndexByte(s.buf, '\n')
-		if i < 0 {
-			break
-		}
-		s.emit(string(s.buf[:i]))
-		s.buf = s.buf[i+1:]
-	}
-	return len(p), nil
-}
-
-func (s *sseLineWriter) emit(line string) {
+func newSSELineWriter(w http.ResponseWriter, f http.Flusher) *sseLineWriter {
 	// SSE data lines are delimited by newlines only, so backslashes need no
 	// escaping; the frontend consumers pass the payload through verbatim.
-	fmt.Fprintf(s.w, "data: %s\n\n", strings.TrimRight(line, "\r"))
-	s.f.Flush()
+	return &sseLineWriter{&lineEmitter{emit: func(line string) {
+		fmt.Fprintf(w, "data: %s\n\n", line)
+		f.Flush()
+	}}}
 }
 
-func (s *sseLineWriter) flushTail() {
-	if len(s.buf) > 0 {
-		s.emit(string(s.buf))
-		s.buf = nil
-	}
-}
+func (s *sseLineWriter) flushTail() { s.flush() }
 
 // handleSiteWorktreeAdd answers POST /api/sites/worktree-add?domain=... by
 // creating a git worktree and running lerd's setup pipeline, streaming
@@ -7036,7 +7016,7 @@ func handleSiteWorktreeAdd(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "event: done\ndata: %s\n\n", mustJSON(payload))
 		flusher.Flush()
 	}
-	sw := &sseLineWriter{w: w, f: flusher}
+	sw := newSSELineWriter(w, flusher)
 	branch, _, warnings, addErr := cli.RunWorktreeAdd(site, req, sw)
 	sw.flushTail()
 	if addErr != nil {
@@ -7197,7 +7177,7 @@ func streamSteps(w http.ResponseWriter, run func(io.Writer) (string, error), rep
 		return
 	}
 
-	sw := &sseLineWriter{w: w, f: flusher}
+	sw := newSSELineWriter(w, flusher)
 	snap, runErr := run(sw)
 	sw.flushTail()
 	payload := map[string]any{"snapshot": snap}

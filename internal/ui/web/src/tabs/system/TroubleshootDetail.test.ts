@@ -95,3 +95,31 @@ describe('TroubleshootDetail', () => {
     expect(await screen.findByText('podman not found')).toBeTruthy();
   });
 });
+
+describe('TroubleshootDetail edge cases', () => {
+  it('renders findings whose names were cut short to the same text', async () => {
+    const dup = { section: 'Configuration', name: 'parked dir: /home/user/projects/cli...', status: 'warn', fix: { tier: 'auto', key: 'mkdir', label: 'create it' } };
+    loadMachineReport.mockResolvedValue({
+      version: 'test',
+      failures: 0,
+      warnings: 2,
+      findings: [
+        { ...dup, message: 'missing clients-a' },
+        { ...dup, message: 'missing clients-b' }
+      ]
+    });
+    render(TroubleshootDetail);
+    expect(await screen.findByText('missing clients-a')).toBeTruthy();
+    expect(screen.getByText('missing clients-b')).toBeTruthy();
+  });
+
+  it('shows a fix that failed to reach the server and checks again', async () => {
+    applyMachineFix.mockRejectedValue(new Error('Failed to fetch'));
+    render(TroubleshootDetail);
+    await screen.findByText('Windows agent running');
+    const row = screen.getByText('Windows agent running').closest('[data-finding]') as HTMLElement;
+    await fireEvent.click(row.querySelector('button') as HTMLButtonElement);
+    expect(await screen.findByText('Failed to fetch')).toBeTruthy();
+    await vi.waitFor(() => expect(loadMachineReport).toHaveBeenCalledTimes(2));
+  });
+});

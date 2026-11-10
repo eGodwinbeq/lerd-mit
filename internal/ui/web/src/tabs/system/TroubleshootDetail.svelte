@@ -57,6 +57,8 @@
         output = { ...out };
       });
       if (!res.ok) output = { ...out, error: res.error ?? '' };
+    } catch (e) {
+      output = { ...out, error: e instanceof Error ? e.message : String(e) };
     } finally {
       fixing = '';
     }
@@ -141,7 +143,7 @@
 
     {#if parts.problems.length > 0}
       <div class="rounded-xl border border-gray-200/80 dark:border-lerd-border divide-y divide-gray-100 dark:divide-lerd-border overflow-hidden">
-        {#each parts.problems as f (f.section + f.name)}
+        {#each parts.problems as f, i (i)}
           {@render findingRow(f)}
         {/each}
       </div>
@@ -150,7 +152,7 @@
     {#if parts.optional.length > 0}
       <h3 class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{m.system_troubleshoot_optional()}</h3>
       <div class="rounded-xl border border-gray-200/80 dark:border-lerd-border divide-y divide-gray-100 dark:divide-lerd-border overflow-hidden">
-        {#each parts.optional as f (f.section + f.name)}
+        {#each parts.optional as f, i (i)}
           {@render findingRow(f)}
         {/each}
       </div>
@@ -174,7 +176,7 @@
           {m.system_troubleshoot_passed({ count: parts.passed.length })}
         </summary>
         <ul class="px-3.5 pb-2 space-y-0.5">
-          {#each parts.passed as f (f.section + f.name)}
+          {#each parts.passed as f, i (i)}
             <li class="text-[11px] text-gray-500 dark:text-gray-400">
               <span class="text-gray-400 dark:text-gray-500">{f.section}</span> · {f.name}
             </li>

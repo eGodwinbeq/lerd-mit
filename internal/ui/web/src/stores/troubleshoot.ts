@@ -55,7 +55,8 @@ export async function applyMachineFix(
   const res = await apiFetch('/api/doctor/fix', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ key: f.fix?.key, name: f.name })
+    // The message tells apart findings whose names were cut short to the same text.
+    body: JSON.stringify({ key: f.fix?.key, name: f.name, message: f.message ?? '' })
   });
   if (!res.ok || !res.body) {
     const text = (await res.text().catch(() => '')).trim();

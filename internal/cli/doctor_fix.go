@@ -61,6 +61,12 @@ var reCheckReport = RunDoctorReport
 // host's systemd, and to prove it routes here rather than into `lerd start`.
 var ensureNoNetworkWaitStallFn = lerdSystemd.EnsureNoNetworkWaitStall
 
+// RestartsDashboard reports a fix that restarts lerd-ui, which the dashboard
+// cannot run on itself: the restart would kill the fix along with it.
+func RestartsDashboard(fix *DoctorFix) bool {
+	return fix != nil && fix.Key == fixInstall
+}
+
 // IsHeavyFix reports whether a fix always warrants an extra confirmation.
 func IsHeavyFix(fix *DoctorFix) bool {
 	return fix != nil && heavyFixReasons[fix.Key] != ""
