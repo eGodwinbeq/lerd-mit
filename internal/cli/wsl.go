@@ -86,6 +86,16 @@ func runWSLSetup(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintln(w, "  ! couldn't reach certutil.exe; import the CA manually (see the WSL2 guide)")
 	}
 
+	// 4b. the font the distro's Windows Terminal profile asks for, from the
+	//     distro's own files, so the terminal stops warning that it is missing.
+	if face, files := terminalFontMissing(); face != "" {
+		if err := installTerminalFont(face, files); err != nil {
+			fmt.Fprintf(w, "  ! installing the %s font for Windows Terminal: %v\n", face, err)
+		} else {
+			fmt.Fprintf(w, "  ✓ installed the %s font Windows Terminal's profile for this distro uses\n", face)
+		}
+	}
+
 	// 5. tray — no StatusNotifier host on WSL, so keep the unit off.
 	if turnOffTrayUnit() {
 		fmt.Fprintln(w, "  ✓ turned off lerd-tray (no tray host on WSL2)")

@@ -107,7 +107,7 @@ Lerd is built for PHP developers who want frictionless local development, on a L
 
 ### Health and upkeep
 
-- 🧰 **Environment doctor** (`lerd doctor`). Checks the host lerd itself depends on and repairs what it safely can with `--fix`: missing directories, linger, a missing PHP image, the DNS wiring, and on Windows the WSL side and Windows' own (the agent, the `.test` DNS rule, certificate trust, `.wslconfig`, stale shims, PATH order). The dashboard's **System → Troubleshoot** runs the same checks with a Fix button per problem. Anything needing sudo is printed as a command and never run for you, fixes that raise a Windows prompt always ask first, and `--dry-run` shows it all first.
+- 🧰 **Environment doctor** (`lerd doctor`). Checks the host lerd itself depends on and repairs what it safely can with `--fix`: missing directories, linger, a missing PHP image, the DNS wiring, and on Windows the WSL side and Windows' own (the agent, the `.test` DNS rule, certificate trust, `.wslconfig`, stale shims, PATH order, the terminal font). The dashboard's **System → Troubleshoot** runs the same checks with a Fix button per problem. Anything needing sudo is printed as a command and never run for you, fixes that raise a Windows prompt always ask first, and `--dry-run` shows it all first.
 
 - 🩺 **Site doctor.** Framework-agnostic health checks (env drift, application key, composer and node state, security audits, database presence, PHP version range) plus extra checks for your framework, each with a one-click fix, from the web UI, the TUI, `lerd site:doctor` and MCP.
 
@@ -279,7 +279,7 @@ Lerd runs on Windows through WSL2, on Windows 10 2004 or newer. Windows 11 22H2 
 
 Either installer restarts Windows once if WSL needs enabling and carries on by itself after you sign back in, and running it again after a failure resumes where it stopped. What you get on the Windows side: `.test` domains in every Windows browser, wildcards included; lerd's certificate authority trusted by Windows; `lerd.exe`, `php.exe`, `composer.exe` and `node.exe` on your PATH for PhpStorm or VS Code, with Xdebug's session variables carried through to PHP; lerd starting at login; and database clients such as TablePlus or HeidiSQL connecting on `127.0.0.1`. Keep projects on the Linux disk (`\\wsl.localhost\Ubuntu\home\<you>`) rather than under `C:\`, where file access is many times slower.
 
-When something stops working, open **System → Troubleshoot** in the dashboard or run `lerd doctor --fix`: it checks the Windows side too (the agent, the `.test` DNS rule, certificate trust, `.wslconfig`, stale `.exe` shims, and another PHP coming first on your PATH) and repairs what it can, asking first when Windows will show an administrator or trust prompt.
+When something stops working, open **System → Troubleshoot** in the dashboard or run `lerd doctor --fix`: it checks the Windows side too (the agent, the `.test` DNS rule, certificate trust, `.wslconfig`, stale `.exe` shims, the font Windows Terminal needs for the distro, and another PHP coming first on your PATH) and repairs what it can, asking first when Windows will show an administrator or trust prompt.
 
 See [Lerd for Windows](https://lerd.sh/getting-started/windows) for an overview and the [Windows (WSL2) guide](https://lerd.sh/getting-started/wsl2) for every step.
 

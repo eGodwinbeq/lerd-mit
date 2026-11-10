@@ -31,6 +31,7 @@ const (
 	fixWindowsPath    = "windows-path"
 	fixWindowsDNS     = "windows-dns"
 	fixWindowsCA      = "windows-ca"
+	fixWindowsFont    = "windows-font"
 )
 
 // Repairs that need elevated privilege. They are named so the auto tier can be
@@ -194,7 +195,7 @@ func ApplyDoctorFix(fix *DoctorFix, out io.Writer) error {
 		return runSelf(out, "install")
 	case fixCleanup:
 		return runSelf(out, "cleanup", "--yes")
-	case fixPodmanLogger, fixTrayOff, fixWSLConfig, fixWindowsRefresh, fixWindowsAgent, fixWindowsPath, fixWindowsDNS, fixWindowsCA:
+	case fixPodmanLogger, fixTrayOff, fixWSLConfig, fixWindowsRefresh, fixWindowsAgent, fixWindowsPath, fixWindowsDNS, fixWindowsCA, fixWindowsFont:
 		return applyWindowsSideFix(fix, out)
 	default:
 		return fmt.Errorf("unknown fix %q", fix.Key)

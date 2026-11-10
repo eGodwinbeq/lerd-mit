@@ -15,7 +15,7 @@ func TestWindowsElevatedFixesAlwaysConfirm(t *testing.T) {
 			t.Errorf("%q raises a Windows prompt but is not heavy", key)
 		}
 	}
-	for _, key := range []string{fixPodmanLogger, fixTrayOff, fixWSLConfig, fixWindowsRefresh, fixWindowsAgent, fixWindowsPath} {
+	for _, key := range []string{fixPodmanLogger, fixTrayOff, fixWSLConfig, fixWindowsRefresh, fixWindowsAgent, fixWindowsPath, fixWindowsFont} {
 		if IsHeavyFix(autoFix(key, "", "x")) {
 			t.Errorf("%q needs no prompt and should run under --yes", key)
 		}

@@ -281,3 +281,40 @@ func TestWSLConfigMissing(t *testing.T) {
 		t.Errorf("NAT mode should report networkingMode only, got %v", got)
 	}
 }
+
+func TestTerminalProfileTemplate(t *testing.T) {
+	conf := "[oobe]\ncommand = /usr/lib/wsl/wsl-setup\n\n[windowsterminal]\nProfileTemplate = /usr/share/wsl/terminal-profile.json\n"
+	if got := TerminalProfileTemplate(conf); got != "/usr/share/wsl/terminal-profile.json" {
+		t.Errorf("got %q", got)
+	}
+	if got := TerminalProfileTemplate("[oobe]\nProfileTemplate = /elsewhere.json\n"); got != "" {
+		t.Errorf("a key outside [windowsterminal] is not the template, got %q", got)
+	}
+}
+
+func TestTerminalFontFace(t *testing.T) {
+	profile := []byte(`{"profiles":[{"colorScheme":"Ubuntu","font":{"face":"Ubuntu Sans Mono","size":12}}],"schemes":[]}`)
+	if got := TerminalFontFace(profile); got != "Ubuntu Sans Mono" {
+		t.Errorf("got %q", got)
+	}
+	if got := TerminalFontFace([]byte(`{"profiles":[{"colorScheme":"Ubuntu"}]}`)); got != "" {
+		t.Errorf("a profile with no font names none, got %q", got)
+	}
+	if got := TerminalFontFace([]byte(`not json`)); got != "" {
+		t.Errorf("unreadable template names none, got %q", got)
+	}
+}
+
+func TestFontFileFor(t *testing.T) {
+	for name, want := range map[string]bool{
+		"UbuntuSansMono[wght].ttf":        true,
+		"UbuntuSansMono-Italic[wght].ttf": true,
+		"ubuntusansmono-bold.otf":         true,
+		"UbuntuSans[wdth,wght].ttf":       false,
+		"UbuntuSansMono.txt":              false,
+	} {
+		if got := FontFileFor("Ubuntu Sans Mono", name); got != want {
+			t.Errorf("FontFileFor(%q) = %v, want %v", name, got, want)
+		}
+	}
+}

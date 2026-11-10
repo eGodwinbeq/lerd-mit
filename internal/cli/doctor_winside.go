@@ -50,8 +50,8 @@ func (p windowsProbe) build() int {
 var shimsOnWindowsPath = []string{"php", "composer", "node"}
 
 // windowsProbeScript prints key=value lines and one hit= line per shim lerd.exe
-// has a twin for. The CA and DNS rule checks are left out without a CA or TLD.
-func windowsProbeScript(tld, caThumb string) string {
+// has a twin for. The CA, DNS rule and font checks are left out without one to check.
+func windowsProbeScript(tld, caThumb, fontFace string) string {
 	var b strings.Builder
 	b.WriteString(`'build=' + [Environment]::OSVersion.Version.Build
 try { if (Get-CimInstance Win32_Process -Filter "name='lerd.exe'" | Where-Object { $_.CommandLine -like '*--agent*' }) { 'agent=yes' } else { 'agent=no' } } catch {}
@@ -61,6 +61,9 @@ $lerd = Join-Path $env:LOCALAPPDATA 'lerd\bin'
 `)
 	if caThumb != "" {
 		fmt.Fprintf(&b, "if ((Test-Path 'Cert:\\CurrentUser\\Root\\%[1]s') -or (Test-Path 'Cert:\\LocalMachine\\Root\\%[1]s')) { 'ca=yes' } else { 'ca=no' }\n", caThumb)
+	}
+	if fontFace != "" {
+		fmt.Fprintf(&b, "if (%s) { 'font=yes' } else { 'font=no' }\n", fontInstalledExpr(fontFace))
 	}
 	if tld != "" {
 		fmt.Fprintf(&b, "try { if (Get-DnsClientNrptRule | Where-Object { $_.Namespace -contains %s -and $_.NameServers -contains '127.0.0.1' }) { 'nrpt=yes' } else { 'nrpt=no' } } catch {}\n", psQuote("."+tld))
@@ -197,7 +200,11 @@ func checkWindowsSide(s findingSink, tld string) {
 	if pemPath, ok := mkcertRootCAPEM(); ok {
 		thumb, _ = caThumbprint(pemPath)
 	}
-	out, err := powershell(windowsProbeScript(tld, thumb))
+	face, fontFiles := distroTerminalFont()
+	if len(fontFiles) == 0 {
+		face = "" // nothing in the distro to install, so nothing to check
+	}
+	out, err := powershell(windowsProbeScript(tld, thumb, face))
 	if err != nil {
 		s.warn("Windows interop", "powershell.exe did not answer, so the Windows side was not checked: "+err.Error())
 		return
@@ -257,6 +264,14 @@ func checkWindowsSide(s findingSink, tld string) {
 		s.ok("lerd's CA trusted by Windows")
 	}
 
+	switch {
+	case p.is("font", "no"):
+		s.warn("Windows Terminal font", face+", which Windows Terminal's profile for this distro uses, is not installed in Windows, so the terminal warns each time it opens")
+		s.fix(autoFix(fixWindowsFont, "", "install "+face+" for your Windows user from the distro's own files"))
+	case p.is("font", "yes"):
+		s.ok("Windows Terminal font")
+	}
+
 	shadows := pathShadows(p.hits, lerdDir)
 	if len(shadows) == 0 {
 		if len(p.hits) > 0 {
@@ -307,6 +322,13 @@ func applyWindowsSideFix(fix *DoctorFix, out io.Writer) error {
 	case fixWindowsRefresh:
 		fmt.Fprintln(out, "copying lerd.exe and the shim .exe files to Windows")
 		return refreshWindowsSide()
+	case fixWindowsFont:
+		face, files := distroTerminalFont()
+		if len(files) == 0 {
+			return fmt.Errorf("the distro has no font files for its terminal profile")
+		}
+		fmt.Fprintf(out, "installing %s for your Windows user; restart Windows Terminal to use it\n", face)
+		return installTerminalFont(face, files)
 	case fixWindowsAgent:
 		return startWindowsAgent(out)
 	case fixWindowsPath:

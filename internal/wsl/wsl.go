@@ -6,6 +6,7 @@ package wsl
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"regexp"
@@ -128,6 +129,60 @@ func WSLConfigMissing(content string) []string {
 		}
 	}
 	return out
+}
+
+// TerminalProfileTemplate is the Windows Terminal profile template a distro's
+// /etc/wsl-distribution.conf names under [windowsterminal], "" when none.
+func TerminalProfileTemplate(conf string) string {
+	in := false
+	for _, l := range strings.Split(conf, "\n") {
+		l = strings.TrimSpace(l)
+		if strings.HasPrefix(l, "[") && strings.HasSuffix(l, "]") {
+			in = strings.EqualFold(l, "[windowsterminal]")
+			continue
+		}
+		if k, v, ok := strings.Cut(l, "="); in && ok && strings.EqualFold(strings.TrimSpace(k), "ProfileTemplate") {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+// TerminalFontFace is the font a distro's terminal profile template asks
+// Windows Terminal for, "" when it names none.
+func TerminalFontFace(profile []byte) string {
+	var t struct {
+		Profiles []struct {
+			Font struct {
+				Face string `json:"face"`
+			} `json:"font"`
+		} `json:"profiles"`
+	}
+	if json.Unmarshal(profile, &t) != nil {
+		return ""
+	}
+	for _, p := range t.Profiles {
+		if p.Font.Face != "" {
+			return p.Font.Face
+		}
+	}
+	return ""
+}
+
+// FontFileFor reports whether a font file is one of face's, by its name: the
+// face without spaces, then a style such as -Italic or a [wght] axis tag.
+func FontFileFor(face, name string) bool {
+	lower := strings.ToLower(name)
+	if !strings.HasSuffix(lower, ".ttf") && !strings.HasSuffix(lower, ".otf") {
+		return false
+	}
+	stem := lower[:len(lower)-4]
+	family := strings.ToLower(strings.ReplaceAll(face, " ", ""))
+	if !strings.HasPrefix(stem, family) {
+		return false
+	}
+	rest := stem[len(family):]
+	return rest == "" || rest[0] == '-' || rest[0] == '['
 }
 
 // MirroredNetworkingMinBuild is the first Windows build, 11 22H2, whose WSL

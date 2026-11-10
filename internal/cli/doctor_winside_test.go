@@ -86,20 +86,20 @@ func TestCAThumbprint(t *testing.T) {
 }
 
 func TestWindowsProbeScript(t *testing.T) {
-	s := windowsProbeScript("test", "ABC123")
+	s := windowsProbeScript("test", "ABC123", "")
 	for _, want := range []string{"'build='", "--agent", `Cert:\CurrentUser\Root\ABC123`, "'.test'", "'php'", "'composer'", "lerddir="} {
 		if !strings.Contains(s, want) {
 			t.Errorf("probe script lacks %q:\n%s", want, s)
 		}
 	}
-	bare := windowsProbeScript("", "")
+	bare := windowsProbeScript("", "", "")
 	if strings.Contains(bare, "Cert:") || strings.Contains(bare, "NrptRule") {
 		t.Errorf("no tld and no CA should skip those checks:\n%s", bare)
 	}
 }
 
 func TestWindowsProbeScriptQuotesTLD(t *testing.T) {
-	if s := windowsProbeScript("te'st", ""); !strings.Contains(s, "'.te''st'") {
+	if s := windowsProbeScript("te'st", "", ""); !strings.Contains(s, "'.te''st'") {
 		t.Errorf("tld not PowerShell-quoted:\n%s", s)
 	}
 }
@@ -153,5 +153,39 @@ func TestWindowsSideStale(t *testing.T) {
 	}
 	if windowsSideStale(filepath.Join(linux, "missing.exe"), win, nil) {
 		t.Error("without a lerd.exe beside lerd there is nothing to refresh from")
+	}
+}
+
+func TestFontRegistryName(t *testing.T) {
+	cases := map[string]string{
+		"/usr/share/fonts/truetype/ubuntu/UbuntuSansMono[wght].ttf":        "Ubuntu Sans Mono (TrueType)",
+		"/usr/share/fonts/truetype/ubuntu/UbuntuSansMono-Italic[wght].ttf": "Ubuntu Sans Mono Italic (TrueType)",
+		"/usr/share/fonts/opentype/x/UbuntuSansMono-Bold.otf":              "Ubuntu Sans Mono Bold (OpenType)",
+	}
+	for file, want := range cases {
+		if got := fontRegistryName("Ubuntu Sans Mono", file); got != want {
+			t.Errorf("fontRegistryName(%q) = %q, want %q", file, got, want)
+		}
+	}
+}
+
+func TestRegisterFontsScript(t *testing.T) {
+	s := registerFontsScript("Ubuntu Sans Mono", []string{"/usr/share/fonts/truetype/ubuntu/UbuntuSansMono[wght].ttf"})
+	for _, want := range []string{`HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts`, "'Ubuntu Sans Mono (TrueType)'", "'UbuntuSansMono[wght].ttf'", "-PropertyType String", "AddFontResourceW", "0x1D"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("script lacks %q:\n%s", want, s)
+		}
+	}
+	if strings.Contains(s, "HKLM") {
+		t.Errorf("a per-user font must not touch the machine's fonts:\n%s", s)
+	}
+}
+
+func TestWindowsProbeScriptFont(t *testing.T) {
+	if s := windowsProbeScript("", "", "Ubuntu Sans Mono"); !strings.Contains(s, "font=") || !strings.Contains(s, "'Ubuntu Sans Mono*'") {
+		t.Errorf("probe should check the terminal font:\n%s", s)
+	}
+	if s := windowsProbeScript("", "", ""); strings.Contains(s, "font=") {
+		t.Errorf("no font named, nothing to check:\n%s", s)
 	}
 }
