@@ -1,5 +1,6 @@
 import { m } from '../paraglide/messages.js';
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
+import { status } from './status';
 import { apiJson, apiFetch, decodeJSONResult, sharedJson } from '$lib/api';
 import { readSSE } from '$lib/sse';
 import { confirmDownload } from './downloadConfirm';
@@ -10,6 +11,17 @@ export const phpVersions = writable<string[]>([]);
 // phpVersionsLoaded tells "not fetched yet" apart from "none installed", which
 // both read as an empty list.
 export const phpVersionsLoaded = writable(false);
+
+// A version installed or removed outside this page (the CLI, the tray, another
+// tab) shows up in the live status first, so the list is read again then.
+const versionsKey = (vs: string[]) => [...vs].sort().join(',');
+let statusVersionsKey = '';
+status.subscribe((s) => {
+  const key = versionsKey((s.php_fpms ?? []).map((f) => f.version));
+  if (key === statusVersionsKey) return;
+  statusVersionsKey = key;
+  if (get(phpVersionsLoaded) && key !== versionsKey(get(phpVersions))) void loadPhpVersions();
+});
 
 // Shown wherever a prerelease version is offered, so it never reads as an
 // ordinary choice. Short enough to sit inside the version card. Generic, since

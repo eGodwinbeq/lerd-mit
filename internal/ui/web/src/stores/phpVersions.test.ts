@@ -156,3 +156,38 @@ describe('prereleaseStage', () => {
     expect(prereleaseStage('8.6')).toBe(PRERELEASE_LABEL);
   });
 });
+
+describe('installed list follows the live status', () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  async function setup() {
+    const { phpVersions, phpVersionsLoaded } = await import('./phpVersions');
+    const { status } = await import('./status');
+    const { get } = await import('svelte/store');
+    phpVersions.set(['8.5']);
+    phpVersionsLoaded.set(true);
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(['8.3', '8.4', '8.5']), { status: 200 }));
+    globalThis.fetch = fetchMock;
+    const statusWith = (versions: string[]) =>
+      status.update((s) => ({ ...s, php_fpms: versions.map((version) => ({ version, running: false, xdebug_enabled: false })) }));
+    return { phpVersions, statusWith, fetchMock, get };
+  }
+
+  it('re-reads the list when a version was installed outside this page', async () => {
+    const { phpVersions, statusWith, fetchMock, get } = await setup();
+    statusWith(['8.5', '8.3', '8.4']);
+    await vi.waitFor(() => expect(get(phpVersions)).toEqual(['8.3', '8.4', '8.5']));
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/php-versions');
+  });
+
+  it('leaves the list alone while the status agrees with it', async () => {
+    const { statusWith, fetchMock } = await setup();
+    statusWith(['8.5']);
+    statusWith(['8.5']);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
