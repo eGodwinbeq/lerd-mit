@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/geodro/lerd/internal/config"
@@ -15,6 +16,7 @@ import (
 	"github.com/geodro/lerd/internal/logcolor"
 	phpDet "github.com/geodro/lerd/internal/php"
 	"github.com/geodro/lerd/internal/podman"
+	"github.com/geodro/lerd/internal/winshim"
 	"github.com/spf13/cobra"
 )
 
@@ -322,6 +324,19 @@ func spxPassthroughEnv(environ []string) []string {
 	}
 	if enabled && !hasReport {
 		out = append(out, "SPX_REPORT=full")
+	}
+	return out
+}
+
+// xdebugPassthroughEnv forwards the variables an IDE sets to debug a CLI run,
+// XDEBUG_SESSION or PHP_IDE_CONFIG say, which podman exec would otherwise drop.
+func xdebugPassthroughEnv(environ []string) []string {
+	var out []string
+	for _, e := range environ {
+		k, v, _ := strings.Cut(e, "=")
+		if v != "" && slices.Contains(winshim.DebugEnv, k) {
+			out = append(out, e)
+		}
 	}
 	return out
 }

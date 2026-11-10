@@ -18,6 +18,7 @@
   import { autoSnapshot, loadAutoSnapshot } from '$stores/autoSnapshot';
   import { status as dumpsStatusValue, refreshStatus as refreshDumpsStatus } from '$stores/dumps';
   import { notifyPrefs, permissionState, autoSubscribeDisabled, notifyDelivery } from '$lib/notify';
+  import { machineReport } from '$stores/troubleshoot';
   import { onMount } from 'svelte';
   import { m } from '../paraglide/messages.js';
 
@@ -144,6 +145,15 @@
 
     {#snippet watcherDot()}<StatusDot color={$status.watcher_running ? 'green' : 'gray'} />{/snippet}
     <ListRow active={selected === 'watcher'} onclick={() => select('watcher')} leading={watcherDot}>{m.system_watcher()}</ListRow>
+
+    {#if $accessMode.localControl}
+      {#snippet troubleshootDot()}
+        <StatusDot color={!$machineReport ? 'gray' : $machineReport.failures > 0 ? 'red' : $machineReport.warnings > 0 ? 'amber' : 'green'} />
+      {/snippet}
+      <ListRow active={selected === 'troubleshoot'} onclick={() => select('troubleshoot')} leading={troubleshootDot}>
+        {m.system_troubleshoot_title()}
+      </ListRow>
+    {/if}
 
     {#snippet lerdLeading()}<StatusDot color={$lerdStatusColor} />{/snippet}
     {#snippet lerdTrailing()}

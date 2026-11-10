@@ -62,8 +62,8 @@ func TestRunDoctorFixLeavesPrivilegedRepairsToTheUser(t *testing.T) {
 	rep := reportWith(
 		Finding{Name: "resolver hookup", Status: "fail",
 			Fix: manualFixWith("run `lerd dns:repair` (it needs sudo to rewrite the resolver config)")},
-		Finding{Name: "podman events_logger journald", Status: "warn",
-			Fix: manualFixWith("run `lerd wsl:setup` (it needs sudo to write the podman config)")},
+		Finding{Name: "Windows integration", Status: "warn",
+			Fix: manualFixWith("run `lerd wsl:setup`")},
 	)
 	if err := runDoctorFix(&buf, rep, true, false); err != nil {
 		t.Fatalf("unexpected error: %v", err)

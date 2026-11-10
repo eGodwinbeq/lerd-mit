@@ -37,14 +37,14 @@ When the WSL features need a restart, it offers one and runs again by itself aft
 `lerd wsl:setup`, which the installer runs for you, puts these in place:
 
 - **`lerd` in any Windows terminal.** `lerd.exe` in `%LOCALAPPDATA%\lerd\bin`, on your PATH, runs lerd inside the distro from the folder you are in, including a project opened through `\\wsl.localhost\...`, or the drive letter cmd's `pushd` maps for one. Windows paths in its arguments, such as `C:\work\app` or `--configuration=\\wsl.localhost\Ubuntu\home\you\app\phpunit.xml`, are translated to the paths the distro sees. It runs as the Linux user who ran `lerd wsl:setup`, not the distro's default user, so it always reaches that user's lerd and Podman state.
-- **`php`, `composer`, `node` and lerd's other shims.** `php.exe`, `composer.exe` and so on sit beside `lerd.exe` and run the same shim as inside the distro, so a Windows IDE can point its PHP interpreter, Composer or Node at them. A shim lerd adds later, such as `psql` or `redis-cli` when you install a service, gets its `.exe` within half a minute, and `lerd update` refreshes them all along with `lerd.exe`.
+- **`php`, `composer`, `node` and lerd's other shims.** `php.exe`, `composer.exe` and so on sit beside `lerd.exe` and run the same shim as inside the distro, so a Windows IDE can point its PHP interpreter, Composer or Node at them. Xdebug's variables, such as `XDEBUG_SESSION` or `PHP_IDE_CONFIG` set by an IDE, reach PHP inside WSL. A shim lerd adds later, such as `psql` or `redis-cli` when you install a service, gets its `.exe` within half a minute, and `lerd update` refreshes them all along with `lerd.exe`.
 - **lerd at login.** A background agent starts with Windows and boots the distro, so sites and the dashboard are up without a WSL window open. With the Lerd desktop app installed, the app starts the agent and starts it again if it stops; without it, a `lerd` entry under the user's Run key does. WSL's idle timeout is switched off in `%USERPROFILE%\.wslconfig`, which otherwise stops the distro, and every container with it, seconds after the last terminal closes. If the distro stops anyway, after a `wsl --shutdown`, a `wsl --update` or a crash, the agent boots it again the next time a Windows app looks up a site, so the page loads after a few seconds instead of failing to connect.
 - **`.test` in Windows browsers, wildcards included.** The agent answers DNS for your site TLD on `127.0.0.1`, and a Windows DNS rule (NRPT) sends the TLD there. It shares one administrator prompt with the LAN rule below. Answering DNS rather than writing hosts file lines is what keeps `*.branch.site.test` worktree domains working.
 - **HTTPS trusted by Windows browsers.** lerd's local CA is imported into your Windows user's trust store.
 - **LAN sharing.** WSL's Hyper-V firewall drops every connection from another machine, so `lerd lan:share`, `lan:expose`, `lan:services` and remote control answered only on this PC. A rule named `lerd LAN` lets in your local subnet, with no port list since lerd's ports move when one is taken. Only what listens beyond loopback answers, which lerd does only with a LAN feature on.
 - **Mirrored networking**, so Windows reaches WSL's loopback, plus systemd, the Podman `events_logger` fix and the Linux tray turned off, covered below.
 
-It is idempotent, so run it again whenever something drifts. After you turn lerd's DNS off, running it again takes the Windows DNS rule back. `lerd doctor` adds a `[WSL2]` section that re-checks the Linux side on demand.
+It is idempotent, so run it again whenever something drifts. After you turn lerd's DNS off, running it again takes the Windows DNS rule back. `lerd doctor` adds a `[WSL2]` section that re-checks both sides on demand and repairs most of what it finds, see [Troubleshooting from the dashboard](#troubleshooting-from-the-dashboard).
 
 ## Working on your sites from Windows
 
@@ -241,6 +241,23 @@ If all of those come back green, `cd ~/projects/myapp && lerd link` behaves exac
 `lerd uninstall` inside the distro also cleans up the Windows side: `lerd.exe` and its shims with their PATH entry, the agent's start at login, the Quick access pins, the notification entry, and the Lerd desktop app's start at sign-in, Start menu shortcut and `lerd://` handler. The Windows DNS rule and the `lerd LAN` firewall rule go in one administrator prompt.
 
 Two things stay. lerd's CA remains in your Windows trust store, because removing it raises a dialog a script cannot answer; delete it under **Trusted Root Certification Authorities** in `certmgr.msc`. The desktop app's files under `C:\Program Files\Lerd` need administrator rights to remove: with `Install-Lerd.exe` that is its entry in Add/Remove Programs, after an `install.ps1` install delete the folder yourself.
+
+## Troubleshooting from the dashboard
+
+Open **System → Troubleshoot** in the dashboard, or run `lerd doctor --fix`. Its `[WSL2]` section checks the Windows side in one PowerShell call and offers these repairs, none of which uses `sudo`:
+
+| Finding | What **Fix** does |
+|---|---|
+| podman `events_logger` is not journald, so log panes fail | sets it in `~/.config/containers/containers.conf` |
+| `lerd-tray` is on, which fails without a tray host | turns the unit off |
+| `.wslconfig` lacks mirrored networking or `instanceIdleTimeout=-1` | writes lerd's settings; run `wsl --shutdown` afterwards |
+| `lerd.exe` or a shim `.exe` on Windows is behind this lerd | copies the current ones over |
+| the Windows agent is not running | starts it, through the desktop app when it is installed |
+| `.test` has no Windows DNS rule | adds it, after you approve the administrator prompt |
+| lerd's CA is not in your Windows trust store | imports it, after you confirm the Windows prompt |
+| another `php.exe`, `composer.exe` or `node.exe` comes first on your user PATH, or lerd's folder is missing from it | puts lerd's folder first; open a new terminal or restart your IDE |
+
+The two that raise a Windows prompt always ask before they run, so `lerd doctor --fix --yes` and AI assistants never put one on your desktop by themselves. A PHP from XAMPP, Laragon or Herd on the system PATH comes before every user PATH entry, so for that one the doctor names the folder for you to remove under System Properties, Environment Variables. On a Windows build older than Windows 11 22H2, which has no mirrored networking, it says so instead of offering the `.wslconfig` fix.
 
 ## Known WSL2 quirks
 

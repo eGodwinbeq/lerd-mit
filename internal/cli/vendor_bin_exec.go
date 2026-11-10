@@ -61,6 +61,9 @@ func containerExecEnvArgs(cwd string) []string {
 	for _, e := range spxPassthroughEnv(os.Environ()) {
 		args = append(args, "--env", e)
 	}
+	for _, e := range xdebugPassthroughEnv(os.Environ()) {
+		args = append(args, "--env", e)
+	}
 	// Forward AI agent detection vars so agent-detector (e.g. laravel/pao)
 	// still emits JSON when run inside the container.
 	for _, e := range agentenv.Passthrough(os.Environ()) {

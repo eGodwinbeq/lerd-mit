@@ -290,7 +290,7 @@ func runDoctorInto(w io.Writer, useColor bool) (DoctorReport, error) {
 
 	// ── WSL2 ─────────────────────────────────────────────────────────────────
 	// Failure modes only WSL has: the podman log driver, kernels that break
-	// containers, no tray host, slow 9P mounts. wsl:setup fixes the first and third.
+	// containers, no tray host, slow 9P mounts, and the Windows side drifting.
 	if platform.Current.WindowsSide {
 		section = "WSL2"
 		fmt.Fprintln(w, "\n[WSL2]")
@@ -300,8 +300,8 @@ func runDoctorInto(w io.Writer, useColor bool) (DoctorReport, error) {
 		if b, readErr := os.ReadFile(cc); readErr == nil && wsl.HasEventsLoggerJournald(string(b)) {
 			ok("podman events_logger journald")
 		} else {
-			warn("podman events_logger journald", "log views fail with --follow on WSL, run lerd wsl:setup")
-			rep.fixLast(manualFixWith("run `lerd wsl:setup` (it needs sudo to write the podman config)"))
+			warn("podman events_logger journald", "log views fail with --follow on WSL")
+			rep.fixLast(autoFix(fixPodmanLogger, "", `set events_logger = "journald" in ~/.config/containers/containers.conf`))
 		}
 
 		if dns.ConfiguredTLD() != "localhost" && dns.WSLResolverMissing() {
@@ -350,9 +350,11 @@ func runDoctorInto(w io.Writer, useColor bool) (DoctorReport, error) {
 		if trayUnitOff(trayUnitState()) {
 			ok("lerd-tray off (no WSL tray host)")
 		} else {
-			warn("lerd-tray on WSL", "no tray host on WSL2 so the unit fails, run lerd wsl:setup")
-			rep.fixLast(manualFixWith("run `lerd wsl:setup`"))
+			warn("lerd-tray on WSL", "no tray host on WSL2 so the unit fails")
+			rep.fixLast(autoFix(fixTrayOff, "", "turn off lerd-tray"))
 		}
+
+		checkWindowsSide(findingSink{ok: ok, warn: warn, fail: fail, fix: rep.fixLast}, windowsSideTLD())
 
 		if reg, regErr := config.LoadSites(); regErr == nil {
 			var onMnt []string

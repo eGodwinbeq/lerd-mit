@@ -264,3 +264,20 @@ func TestResolvConfAwaitsRestart(t *testing.T) {
 		}
 	}
 }
+
+func TestWSLConfigMissing(t *testing.T) {
+	if got := WSLConfigMissing(""); len(got) != len(WSLConfigLines) {
+		t.Errorf("empty file should miss every key, got %v", got)
+	}
+	full := ""
+	for _, kv := range WSLConfigLines {
+		full, _ = EnsureSectionLine(full, kv.Section, kv.Key, kv.Line)
+	}
+	if got := WSLConfigMissing(full); len(got) != 0 {
+		t.Errorf("complete file should miss nothing, got %v", got)
+	}
+	nat := strings.Replace(full, "networkingMode=mirrored", "networkingMode=nat", 1)
+	if got := WSLConfigMissing(nat); len(got) != 1 || got[0] != "networkingMode" {
+		t.Errorf("NAT mode should report networkingMode only, got %v", got)
+	}
+}

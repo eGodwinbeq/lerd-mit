@@ -20,6 +20,17 @@ const (
 	fixNetworkWait  = "network-wait"
 	fixInstall      = "install"
 	fixCleanup      = "cleanup"
+
+	// WSL and its Windows side. None runs sudo: each writes a user-owned file,
+	// a user unit, or the Windows user's own settings through interop.
+	fixPodmanLogger   = "wsl-podman-logger"
+	fixTrayOff        = "wsl-tray-off"
+	fixWSLConfig      = "wslconfig"
+	fixWindowsRefresh = "windows-refresh"
+	fixWindowsAgent   = "windows-agent"
+	fixWindowsPath    = "windows-path"
+	fixWindowsDNS     = "windows-dns"
+	fixWindowsCA      = "windows-ca"
 )
 
 // Repairs that need elevated privilege. They are named so the auto tier can be
@@ -31,11 +42,14 @@ const (
 	fixDNSRepair = "dns-repair"
 )
 
-// heavyFixKeys are auto fixes that rebuild images, reinstall units, or delete
-// data, so `lerd doctor --fix` re-confirms them even under --yes.
-var heavyFixKeys = map[string]bool{
-	fixInstall: true,
-	fixCleanup: true,
+// heavyFixReasons names the auto fixes `lerd doctor --fix` re-confirms even
+// under --yes, with why: they rebuild or delete things, or raise a Windows
+// prompt that an unattended run must never put on the desktop.
+var heavyFixReasons = map[string]string{
+	fixInstall:    "This can rebuild images, reinstall units, or delete data.",
+	fixCleanup:    "This can rebuild images, reinstall units, or delete data.",
+	fixWindowsDNS: "Windows asks for administrator rights.",
+	fixWindowsCA:  "Windows asks you to confirm trusting lerd's certificate.",
 }
 
 // reCheckReport re-runs the diagnosis after fixes are applied; a package var so
@@ -49,7 +63,7 @@ var ensureNoNetworkWaitStallFn = lerdSystemd.EnsureNoNetworkWaitStall
 
 // IsHeavyFix reports whether a fix always warrants an extra confirmation.
 func IsHeavyFix(fix *DoctorFix) bool {
-	return fix != nil && heavyFixKeys[fix.Key]
+	return fix != nil && heavyFixReasons[fix.Key] != ""
 }
 
 // runDoctorFix drives the interactive repair flow after a diagnosis: it offers
@@ -81,7 +95,7 @@ func runDoctorFix(w io.Writer, rep DoctorReport, yes, dryRun bool) error {
 		if heavy || !yes {
 			q := fmt.Sprintf("Apply fix for %q (%s)?", f.Name, f.Fix.Label)
 			if heavy {
-				q = fmt.Sprintf("Apply fix for %q (%s)? This can rebuild images, reinstall units, or delete data.", f.Name, f.Fix.Label)
+				q = fmt.Sprintf("Apply fix for %q (%s)? %s", f.Name, f.Fix.Label, heavyFixReasons[f.Fix.Key])
 			}
 			if !feedback.Confirm(q, !heavy) {
 				skipped++
@@ -174,6 +188,8 @@ func ApplyDoctorFix(fix *DoctorFix, out io.Writer) error {
 		return runSelf(out, "install")
 	case fixCleanup:
 		return runSelf(out, "cleanup", "--yes")
+	case fixPodmanLogger, fixTrayOff, fixWSLConfig, fixWindowsRefresh, fixWindowsAgent, fixWindowsPath, fixWindowsDNS, fixWindowsCA:
+		return applyWindowsSideFix(fix, out)
 	default:
 		return fmt.Errorf("unknown fix %q", fix.Key)
 	}

@@ -253,8 +253,8 @@
     (Capture (WSLExe) ("-d $Distro -u $user --cd ~ " + (Detached 'sh -c' 'test -x ~/.local/bin/lerd'))).Code -eq 0
   }
 
-  # LinuxUsername derives a valid Linux login from a Windows user name, as
-  # winshim.LinuxUsername does for lerd.exe's own setup.
+  # LinuxUsername derives a valid Linux login from a Windows user name: lower
+  # case, letters, digits and dashes, starting with a letter, at most 32 long.
   function LinuxUsername([string]$windows) {
     $u = ($windows.ToLowerInvariant() -replace '[^a-z0-9-]', '')
     if (-not $u) { $u = 'lerd' } elseif ($u[0] -notmatch '[a-z]') { $u = "u$u" }

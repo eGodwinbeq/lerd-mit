@@ -44,6 +44,8 @@ type DoctorFix struct {
 	Key   string  `json:"key,omitempty"`
 	Arg   string  `json:"-"`
 	Label string  `json:"label,omitempty"`
+	// Confirm is why a heavy fix asks before it runs, empty for a light one.
+	Confirm string `json:"confirm,omitempty"`
 }
 
 // Finding is one structured doctor result.
@@ -129,7 +131,7 @@ func (r *DoctorReport) ManualFixes() []Finding {
 }
 
 func autoFix(key, arg, label string) *DoctorFix {
-	return &DoctorFix{Tier: FixAuto, Key: key, Arg: arg, Label: label}
+	return &DoctorFix{Tier: FixAuto, Key: key, Arg: arg, Label: label, Confirm: heavyFixReasons[key]}
 }
 
 var manualFix = &DoctorFix{Tier: FixManual}

@@ -11,6 +11,7 @@
   import ToolsDetail from './system/ToolsDetail.svelte';
   import RuntimeDetail from './system/RuntimeDetail.svelte';
   import SnapshotsDetail from './system/SnapshotsDetail.svelte';
+  import TroubleshootDetail from './system/TroubleshootDetail.svelte';
 
   const selected = $derived($routeRest || 'lerd');
   const phpVersion = $derived(selected.startsWith('php-') ? selected.slice(4) : '');
@@ -39,6 +40,8 @@
   <SnapshotsDetail />
 {:else if selected === 'tools'}
   <ToolsDetail />
+{:else if selected === 'troubleshoot'}
+  <TroubleshootDetail />
 {:else}
   <LerdDetail />
 {/if}

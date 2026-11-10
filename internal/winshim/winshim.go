@@ -29,6 +29,31 @@ func (c Config) String() string {
 	return fmt.Sprintf("distro=%s\nlerd=%s\ntld=%s\nshims=%s\nmount=%s\nuser=%s\n", c.Distro, c.Lerd, c.TLD, c.Shims, c.Mount, c.User)
 }
 
+// DebugEnv are the variables an IDE sets to debug or profile a PHP run. lerd
+// forwards them into the PHP container, and lerd.exe across WSL with WSLENV.
+var DebugEnv = []string{"XDEBUG_MODE", "XDEBUG_CONFIG", "XDEBUG_SESSION", "XDEBUG_TRIGGER", "PHP_IDE_CONFIG"}
+
+// WSLEnv is WSLENV with every DebugEnv name that set reports as set added, so
+// wsl.exe carries them into the distro. Names already listed stay as they are.
+func WSLEnv(current string, set func(string) bool) string {
+	listed := map[string]bool{}
+	for _, e := range strings.Split(current, ":") {
+		name, _, _ := strings.Cut(e, "/")
+		listed[name] = true
+	}
+	out := current
+	for _, name := range DebugEnv {
+		if listed[name] || !set(name) {
+			continue
+		}
+		if out != "" {
+			out += ":"
+		}
+		out += name
+	}
+	return out
+}
+
 // ParseConfig reads the key=value file wsl:setup writes. An unknown key is
 // ignored so a newer lerd can add one without breaking an older lerd.exe.
 func ParseConfig(s string) (Config, error) {

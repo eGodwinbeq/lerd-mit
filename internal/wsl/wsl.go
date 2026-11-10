@@ -118,6 +118,22 @@ var WSLConfigLines = []struct{ Section, Key, Line string }{
 	{"experimental", "hostAddressLoopback", "hostAddressLoopback=true"},
 }
 
+// WSLConfigMissing lists the WSLConfigLines keys a .wslconfig does not yet set
+// to lerd's value, in WSLConfigLines order.
+func WSLConfigMissing(content string) []string {
+	var out []string
+	for _, kv := range WSLConfigLines {
+		if _, changed := EnsureSectionLine(content, kv.Section, kv.Key, kv.Line); changed {
+			out = append(out, kv.Key)
+		}
+	}
+	return out
+}
+
+// MirroredNetworkingMinBuild is the first Windows build, 11 22H2, whose WSL
+// offers networkingMode=mirrored.
+const MirroredNetworkingMinBuild = 22621
+
 // HasEventsLoggerJournald reports whether a containers.conf already sets
 // events_logger to journald, used by the doctor to flag the misconfiguration
 // that breaks every `podman logs --follow` (and thus every dashboard log pane)

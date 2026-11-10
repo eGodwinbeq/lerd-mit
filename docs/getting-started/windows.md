@@ -43,5 +43,6 @@ Keep projects on the Linux disk (`\\wsl.localhost\Ubuntu\home\<you>`), not under
 
 - [Windows (WSL2) guide](./wsl2) documents every step the installer takes, for doing it by hand or fixing a drifted setup.
 - [Quick Start](./quick-start) links your first site.
+- [Troubleshooting from the dashboard](./wsl2#troubleshooting-from-the-dashboard) checks and repairs the Windows side when something stops working.
 - [Uninstall](/getting-started/uninstall#windows-wsl2) removes Lerd from Windows.
 - Follow new releases on the [Lerd desktop releases page](https://github.com/lerd-env/lerd-desktop/releases) and the [changelog](/changelog).

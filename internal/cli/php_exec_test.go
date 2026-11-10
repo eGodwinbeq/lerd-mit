@@ -130,3 +130,22 @@ func TestDebugSiteEnvArgs(t *testing.T) {
 		t.Errorf("unregistered dir args = %v, want none", got)
 	}
 }
+
+func TestXdebugPassthroughEnv(t *testing.T) {
+	environ := []string{
+		"PATH=/usr/bin",
+		"XDEBUG_MODE=debug",
+		"XDEBUG_CONFIG=idekey=PHPSTORM",
+		"XDEBUG_SESSION=1",
+		"PHP_IDE_CONFIG=serverName=app.test",
+		"XDEBUG_UNRELATED_HOST_VAR=x",
+		"XDEBUG_TRIGGER=",
+	}
+	want := []string{"XDEBUG_MODE=debug", "XDEBUG_CONFIG=idekey=PHPSTORM", "XDEBUG_SESSION=1", "PHP_IDE_CONFIG=serverName=app.test"}
+	if got := xdebugPassthroughEnv(environ); !reflect.DeepEqual(got, want) {
+		t.Errorf("xdebugPassthroughEnv = %v, want %v", got, want)
+	}
+	if got := xdebugPassthroughEnv([]string{"PATH=/usr/bin"}); len(got) != 0 {
+		t.Errorf("no debug vars should forward nothing, got %v", got)
+	}
+}

@@ -65,6 +65,10 @@ func main() {
 func runInDistro(wslArgs []string) int {
 	cmd := exec.Command("wsl.exe", wslArgs...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	// WSL drops Windows variables unless WSLENV names them, and an IDE starts
+	// a debug run through php.exe with exactly those.
+	isSet := func(name string) bool { return os.Getenv(name) != "" }
+	cmd.Env = append(os.Environ(), "WSLENV="+winshim.WSLEnv(os.Getenv("WSLENV"), isSet))
 	err := cmd.Run()
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {

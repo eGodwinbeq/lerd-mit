@@ -59,6 +59,8 @@ var loopbackOnlyRoutePrefixes = []string{
 	"/api/project",
 	// Installs code that later runs as the user.
 	"/api/plugin-manager",
+	// Reports host paths and config, and repairs the host, Windows prompts included.
+	"/api/doctor",
 }
 
 // loopbackOnlySiteSubactions are the per-site actions (under

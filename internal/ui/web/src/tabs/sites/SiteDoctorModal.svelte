@@ -1,40 +1,4 @@
 <script lang="ts" module>
-  type Status = 'ok' | 'warn' | 'fail' | 'unknown';
-
-  // Per-status visual treatment: the far-right result icon, its colour, the
-  // hero count-pill styling and the severity ordering. One table keeps the
-  // markup free of fanned-out switch statements.
-  const STATUS: Record<Status, { rank: number; icon: string; text: string; badge: string; dot: string }> = {
-    fail: {
-      rank: 0,
-      icon: 'M9 9l6 6m0-6l-6 6m12-3a9 9 0 11-18 0 9 9 0 0118 0z',
-      text: 'text-red-500',
-      badge: 'bg-red-500/15 text-red-400',
-      dot: 'bg-red-500'
-    },
-    warn: {
-      rank: 1,
-      icon: 'M12 9v2m0 4h.01M5.07 19h13.86a2 2 0 001.74-3L13.74 4a2 2 0 00-3.48 0L3.33 16a2 2 0 001.74 3z',
-      text: 'text-amber-500',
-      badge: 'bg-amber-500/15 text-amber-500',
-      dot: 'bg-amber-500'
-    },
-    unknown: {
-      rank: 2,
-      icon: 'M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
-      text: 'text-gray-400',
-      badge: 'bg-gray-500/15 text-gray-400',
-      dot: 'bg-gray-400'
-    },
-    ok: {
-      rank: 3,
-      icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z',
-      text: 'text-emerald-500',
-      badge: 'bg-emerald-500/15 text-emerald-500',
-      dot: 'bg-emerald-500'
-    }
-  };
-
   // Per-check glyph for the neutral leading tile, so each row is recognisable
   // at a glance regardless of its result. Falls back to a clipboard.
   const CHECK_ICON: Record<string, string> = {
@@ -73,6 +37,10 @@
 <script lang="ts">
   import Modal from '$components/Modal.svelte';
   import CopyButton from '$components/CopyButton.svelte';
+  import DoctorSummary from '$components/DoctorSummary.svelte';
+  import DoctorFixButton from '$components/DoctorFixButton.svelte';
+  import DoctorResultIcon from '$components/DoctorResultIcon.svelte';
+  import { DOCTOR_STATUS, doctorStatus } from '$lib/doctorStatus';
   import { doctorAgentPrompt } from '$lib/agentPrompt';
   import { loadDoctor, type DoctorCheck, type DoctorReport } from '$stores/doctor';
   import { loadCommands, launchCommand, runSettled, executeDoctorFix, type Command } from '$stores/commands';
@@ -193,7 +161,7 @@
     }
   }
 
-  const st = (s: DoctorCheck['status']) => STATUS[(s as Status) in STATUS ? (s as Status) : 'unknown'];
+  const st = (s: DoctorCheck['status']) => doctorStatus(s);
 
   const checkTitle = (check: DoctorCheck): string => {
     switch (check.name) {
@@ -231,7 +199,6 @@
     report ? [...report.checks].sort((a, b) => st(a.status).rank - st(b.status).rank) : []
   );
 
-  const allClear = $derived(!loading && Boolean(report) && report!.failures === 0 && report!.warnings === 0);
   const okCount = $derived(report ? report.checks.filter((c) => c.status === 'ok').length : 0);
 
   // A fix lerd carries out itself, versus one the user resolves in the editor.
@@ -269,67 +236,19 @@
 
 <Modal {open} title={m.sites_doctor_title()} size="lg" {onclose} actions={copyForAgent}>
   <div class="max-h-[64vh] overflow-y-auto px-5 py-4 space-y-4">
-    <!-- Summary hero: overall verdict plus counts, so the headline reads before any scrolling. -->
-    <div
-      class="flex items-center gap-3 rounded-xl border p-3.5 {allClear
-        ? 'border-emerald-500/20 bg-emerald-500/5'
-        : (report?.failures ?? 0) > 0
-          ? 'border-red-500/20 bg-red-500/5'
-          : 'border-amber-500/20 bg-amber-500/5'}"
-    >
-      <span
-        class="grid place-items-center w-10 h-10 rounded-full shrink-0 {allClear
-          ? 'bg-emerald-500/15 text-emerald-500'
-          : (report?.failures ?? 0) > 0
-            ? 'bg-red-500/15 text-red-500'
-            : 'bg-amber-500/15 text-amber-500'}"
-      >
-        {#if loading}
-          <svg class="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" />
-            <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" />
-          </svg>
-        {:else}
-          <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d={allClear ? STATUS.ok.icon : (report?.failures ?? 0) > 0 ? STATUS.fail.icon : STATUS.warn.icon}
-            />
-          </svg>
-        {/if}
-      </span>
-      <div class="min-w-0 flex-1">
-        <p class="text-sm font-semibold text-gray-900 dark:text-white">
-          {loading ? m.sites_doctor_running() : allClear ? m.sites_doctor_allClear() : m.sites_doctor_summary({ failures: report?.failures ?? 0, warnings: report?.warnings ?? 0 })}
-        </p>
-        <p class="text-[11px] text-gray-500 dark:text-gray-400 truncate">{activeDomain}</p>
-      </div>
-      {#if report}
-        <div class="hidden sm:flex items-center gap-1.5 shrink-0">
-          {#if report.failures > 0}
-            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold {STATUS.fail.badge}">
-              <span class="w-1.5 h-1.5 rounded-full {STATUS.fail.dot}"></span>{report.failures}
-            </span>
-          {/if}
-          {#if report.warnings > 0}
-            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold {STATUS.warn.badge}">
-              <span class="w-1.5 h-1.5 rounded-full {STATUS.warn.dot}"></span>{report.warnings}
-            </span>
-          {/if}
-          {#if okCount > 0}
-            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold {STATUS.ok.badge}">
-              <span class="w-1.5 h-1.5 rounded-full {STATUS.ok.dot}"></span>{okCount}
-            </span>
-          {/if}
-        </div>
-      {/if}
-    </div>
+    <DoctorSummary
+      {loading}
+      ready={Boolean(report)}
+      failures={report?.failures ?? 0}
+      warnings={report?.warnings ?? 0}
+      ok={okCount}
+      subtitle={activeDomain}
+    />
 
     {#if error}
       <div class="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/5 p-3 text-xs text-red-400">
         <svg class="w-4 h-4 mt-0.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d={STATUS.fail.icon} />
+          <path stroke-linecap="round" stroke-linejoin="round" d={DOCTOR_STATUS.fail.icon} />
         </svg>
         <span>{error}</span>
       </div>
@@ -371,25 +290,12 @@
               {/if}
             </div>
             {#if canFix(check)}
-              <button
-                type="button"
-                onclick={() => runFix(check)}
+              <DoctorFixButton
+                status={check.status}
+                running={fixing === check.name}
                 disabled={loading || Boolean(fixing)}
-                class="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold shadow-sm disabled:opacity-50 transition-colors {check.status === 'fail' ? 'bg-lerd-red hover:bg-lerd-redhov text-lerd-onred' : 'bg-amber-500 hover:bg-amber-600 text-white'}"
-              >
-                {#if fixing === check.name}
-                  <svg class="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" />
-                    <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.4 0 0 5.4 0 12h4z" />
-                  </svg>
-                  {m.sites_doctor_fixing()}
-                {:else}
-                  <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                  {m.sites_doctor_fix()}
-                {/if}
-              </button>
+                onclick={() => runFix(check)}
+              />
             {/if}
             {#if canEditEnv(check)}
               <button
@@ -403,12 +309,7 @@
                 {m.common_edit()}
               </button>
             {/if}
-            <!-- Result on the far right, as a check / warning / error / unknown icon. -->
-            <span class="shrink-0 {st(check.status).text}" title={statusLabel(check.status)} aria-label={statusLabel(check.status)}>
-              <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d={st(check.status).icon} />
-              </svg>
-            </span>
+            <DoctorResultIcon status={check.status} label={statusLabel(check.status)} />
           </div>
         {/each}
         {#if loading}

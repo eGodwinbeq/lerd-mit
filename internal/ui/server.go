@@ -390,6 +390,8 @@ func Start(currentVersion string) error {
 	mux.HandleFunc("/api/themes/", withCORS(handleThemeItem))
 	mux.HandleFunc("/api/workers/health", withCORS(handleWorkersHealth))
 	mux.HandleFunc("/api/workers/heal", withCORS(handleWorkersHeal))
+	mux.HandleFunc("/api/doctor", withCORS(handleDoctor))
+	mux.HandleFunc("/api/doctor/fix", withCORS(publishAfter(handleDoctorFix, eventbus.KindStatus)))
 	mux.HandleFunc("/api/workers/stop", withCORS(handleWorkersStop))
 	mux.HandleFunc("/api/stats", withCORS(handleStats))
 	mux.HandleFunc("/api/disk", withCORS(handleDisk))

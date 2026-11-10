@@ -260,3 +260,25 @@ func TestUNCPath_RoundTrips(t *testing.T) {
 		t.Errorf("LinuxPath(UNCPath) = %q, %v", back, ok)
 	}
 }
+
+func TestWSLEnv(t *testing.T) {
+	set := func(names ...string) func(string) bool {
+		return func(n string) bool {
+			for _, x := range names {
+				if x == n {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	if got := WSLEnv("", set()); got != "" {
+		t.Errorf("nothing set should leave WSLENV empty, got %q", got)
+	}
+	if got := WSLEnv("", set("XDEBUG_SESSION", "PHP_IDE_CONFIG")); got != "XDEBUG_SESSION:PHP_IDE_CONFIG" {
+		t.Errorf("got %q", got)
+	}
+	if got := WSLEnv("WT_SESSION:XDEBUG_MODE/u", set("XDEBUG_MODE", "XDEBUG_CONFIG")); got != "WT_SESSION:XDEBUG_MODE/u:XDEBUG_CONFIG" {
+		t.Errorf("an entry already listed, with its flag, must stay as it is: got %q", got)
+	}
+}
