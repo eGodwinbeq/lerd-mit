@@ -25,7 +25,7 @@ Pick one:
   lerd wsl:setup
   ```
 
-Running the installer again after a failure resumes where it stopped. Lerd is removed from Add/Remove Programs like any other app.
+The PowerShell installer checks your PC before it changes anything, numbers its steps with how long each takes, and finishes by checking that your sites, HTTPS and the Windows commands work. Running the installer again after a failure resumes where it stopped, and on a PC already set up it repairs what has drifted. Lerd is removed from Add/Remove Programs like any other app.
 
 ## How it works on Windows
 

@@ -50,7 +50,9 @@
   # What the steps learn and the answers they act on. A table, so the functions
   # below change it in place instead of reaching for $script: scope, which `irm
   # | iex` would make the caller's own session.
-  $S = @{ LinuxUser = ''; Password = $null; UserExists = $false; LerdInstalled = $false; DNSLocalhost = $false; ManageNode = $true; MCP = $null; OptionsPending = $false }
+  $S = @{ LinuxUser = ''; Password = $null; UserExists = $false; LerdInstalled = $false; DNSLocalhost = $false; ManageNode = $true; MCP = $null; OptionsPending = $false; Phase = ''; DashboardUp = $false }
+  # Everything this run says goes here too, for a failure to be looked into.
+  $SetupLog = Join-Path $env:LOCALAPPDATA 'lerd\setup.log'
   # Choices wait here until applied, so a run cut off after install.sh still applies them.
   $OptionsFile = Join-Path $env:LOCALAPPDATA 'lerd\setup-options.json'
 
@@ -59,7 +61,38 @@
   function Info($s) { Write-Host "  --> $s" -ForegroundColor Cyan }
   function Ok($s) { Write-Host "  OK  $s" -ForegroundColor Green }
   function Warn($s) { Write-Host "  !   $s" -ForegroundColor Yellow }
-  function Step($s) { Write-Host ''; Write-Host "==> $s" -ForegroundColor White }
+  function Step($s) { Write-Host "  ->  $s" -ForegroundColor White }
+
+  # Elapsed formats a duration the way the progress lines show it: 42s, 3m 05s.
+  function Elapsed([TimeSpan]$t) {
+    if ($t.TotalSeconds -lt 60) { return ('{0}s' -f [int][math]::Floor($t.TotalSeconds)) }
+    '{0}m {1:00}s' -f [int][math]::Floor($t.TotalMinutes), $t.Seconds
+  }
+
+  # The phases of an install, numbered on screen so a long one never looks stuck.
+  $Phases = @(
+    @{ Title = 'Installing WSL'; Time = 'about 2 minutes' }
+    @{ Title = 'Installing Ubuntu'; Time = 'about 3 minutes' }
+    @{ Title = 'Creating your Linux user'; Time = 'under a minute' }
+    @{ Title = 'Installing Podman'; Time = 'about 2 minutes' }
+    @{ Title = 'Installing the Lerd desktop app'; Time = 'under a minute' }
+    @{ Title = 'Installing lerd and connecting it with Windows'; Time = '5 to 15 minutes the first time' }
+    @{ Title = 'Starting lerd'; Time = 'about a minute' }
+    @{ Title = 'Checking that everything works'; Time = 'a few seconds' }
+  )
+
+  # Phase runs one numbered phase, timing it. The title is kept so a failure can
+  # say where the install stopped.
+  function Phase([int]$n, [scriptblock]$work) {
+    $p = $Phases[$n - 1]
+    $S.Phase = $p.Title
+    Write-Host ''
+    Write-Host ('[{0}/{1}] {2}' -f $n, $Phases.Count, $p.Title) -ForegroundColor White -NoNewline
+    Write-Host ('   {0}' -f $p.Time) -ForegroundColor DarkGray
+    $t = [Diagnostics.Stopwatch]::StartNew()
+    & $work
+    Write-Host ('  OK  done in {0}' -f (Elapsed $t.Elapsed)) -ForegroundColor Green
+  }
 
   # ---- running commands ------------------------------------------------------
 
@@ -264,6 +297,107 @@
 
   $Reserved = 'root daemon bin sys sync games man lp mail news uucp proxy www-data backup list irc nobody systemd-network systemd-resolve messagebus syslog ubuntu' -split ' '
 
+  # ---- preflight -------------------------------------------------------------
+
+  # Processes that may hold lerd's ports because they are lerd, or WSL serving it.
+  $OwnPortHolders = 'lerd', 'lerd-desktop', 'wslrelay', 'wslhost', 'wslservice', 'vmmem', 'vmmemWSL', 'vmcompute'
+
+  # PortOwner names what listens on a port, for a message a person can act on.
+  function PortOwner([int]$procId) {
+    if ($procId -eq 4) { return 'Windows (HTTP.sys, usually IIS)' }
+    $p = Get-Process -Id $procId -ErrorAction SilentlyContinue
+    if ($p) { $p.ProcessName } else { "process $procId" }
+  }
+
+  # PreflightFacts reads what decides whether lerd can install here, before
+  # anything changes. Each probe fails soft: a check that cannot run never blocks.
+  function PreflightFacts {
+    $f = @{ Build = [Environment]::OSVersion.Version.Build; Virtualization = 'unknown'; FreeGB = -1; Online = @{}; Ports = @{} }
+    try {
+      if ((Get-CimInstance Win32_ComputerSystem).HypervisorPresent) { $f.Virtualization = 'on' }
+      else {
+        $v = (Get-CimInstance Win32_Processor | Select-Object -First 1).VirtualizationFirmwareEnabled
+        if ($v -eq $true) { $f.Virtualization = 'on' } elseif ($v -eq $false) { $f.Virtualization = 'off' }
+      }
+    } catch {}
+    try { $f.FreeGB = [int][math]::Floor((Get-PSDrive $env:SystemDrive.TrimEnd(':')).Free / 1GB) } catch {}
+    foreach ($h in 'github.com', 'ghcr.io') {
+      $f.Online[$h] = $false
+      try { $null = Invoke-WebRequest -UseBasicParsing -Method Head -TimeoutSec 8 "https://$h"; $f.Online[$h] = $true }
+      catch { if ($_.Exception.Response) { $f.Online[$h] = $true } }
+    }
+    foreach ($port in 80, 443, 7073) {
+      $c = Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -First 1
+      if ($c) { $f.Ports[$port] = PortOwner $c.OwningProcess }
+    }
+    $u = Get-NetUDPEndpoint -LocalPort 53 -ErrorAction SilentlyContinue | Where-Object { $_.LocalAddress -in '127.0.0.1', '0.0.0.0' } | Select-Object -First 1
+    if ($u) { $f.Ports[53] = PortOwner $u.OwningProcess }
+    $f
+  }
+
+  # PreflightFindings turns the facts into one line per check: ok, warn (shown,
+  # the install goes on) or stop (it cannot work until fixed), each stop and
+  # warn with the fix. Pure, so the judgement is tested without a PC to probe.
+  function PreflightFindings($f) {
+    $out = New-Object System.Collections.ArrayList
+    function Add($level, $text, $fix) { [void]$out.Add(@{ Level = $level; Text = $text; Fix = $fix }) }
+
+    if ($f.Build -lt 19041) {
+      Add 'stop' "Windows build $($f.Build) is too old for WSL 2" 'Update Windows in Settings > Windows Update to Windows 10 version 2004 or newer, then run the installer again.'
+    } elseif ($f.Build -lt 22621) {
+      Add 'warn' "Windows build $($f.Build) has no mirrored networking, so .test sites may not open in Windows browsers" 'Windows 11 22H2 or newer fixes this; lerd still installs.'
+    } else { Add 'ok' "Windows build $($f.Build)" '' }
+
+    switch ($f.Virtualization) {
+      'off' { Add 'stop' "Virtualization is turned off in this PC's firmware, and WSL 2 needs it" 'Restart into the BIOS or UEFI setup, turn on Intel VT-x or AMD-V (SVM), then run the installer again.' }
+      'on' { Add 'ok' 'Virtualization is on' '' }
+    }
+
+    if ($f.FreeGB -ge 0) {
+      if ($f.FreeGB -lt 5) { Add 'stop' "Only $($f.FreeGB) GB free on $env:SystemDrive" 'Lerd needs about 10 GB for Ubuntu, Podman and PHP. Free some space, then run the installer again.' }
+      elseif ($f.FreeGB -lt 15) { Add 'warn' "Only $($f.FreeGB) GB free on $env:SystemDrive" 'Lerd needs about 10 GB, and more as you add PHP versions and databases.' }
+      else { Add 'ok' "$($f.FreeGB) GB free on $env:SystemDrive" '' }
+    }
+
+    $down = @($f.Online.Keys | Where-Object { -not $f.Online[$_] } | Sort-Object)
+    if ($f.Online.Count -gt 0 -and $down.Count -eq $f.Online.Count) {
+      Add 'stop' 'No connection to github.com or ghcr.io' 'Check your internet connection, or set your proxy in Settings > Network & internet > Proxy, then run the installer again.'
+    } elseif ($down.Count -gt 0) {
+      Add 'warn' "No connection to $($down -join ', ')" 'A firewall or proxy may be blocking it; downloads from there will fail.'
+    } elseif ($f.Online.Count -gt 0) { Add 'ok' 'Internet connection' '' }
+
+    $clash = $false
+    foreach ($port in 80, 443) {
+      $who = $f.Ports[$port]
+      if ($who -and $OwnPortHolders -notcontains $who) {
+        $clash = $true
+        Add 'warn' "$who is using port $port, which lerd's sites need" 'Quit it before using lerd (for XAMPP, Laragon or WAMP, stop Apache in their control panel; for IIS, stop the World Wide Web Publishing Service), or lerd''s sites will not load.'
+      }
+    }
+    if (-not $clash) { Add 'ok' 'Ports 80 and 443 are free for your sites' '' }
+    $who = $f.Ports[7073]
+    if ($who -and $OwnPortHolders -notcontains $who) {
+      Add 'warn' "$who is using port 7073, which lerd's dashboard needs" 'Quit it, or the dashboard will not open.'
+    }
+    $who = $f.Ports[53]
+    if ($who -and $OwnPortHolders -notcontains $who) {
+      Add 'warn' "$who is answering DNS on this PC" 'A DNS filter such as NextDNS can keep .test sites from resolving in Windows; if they do not open, quit it or add your sites to the hosts file.'
+    }
+    , $out.ToArray()
+  }
+
+  # ShowPreflight prints the checks and reports whether the install can go on.
+  function ShowPreflight($findings) {
+    foreach ($c in $findings) {
+      switch ($c.Level) {
+        'ok' { Write-Host "  OK  $($c.Text)" -ForegroundColor Green }
+        'warn' { Write-Host "  !   $($c.Text)" -ForegroundColor Yellow; Write-Host "      $($c.Fix)" -ForegroundColor DarkGray }
+        'stop' { Write-Host "  X   $($c.Text)" -ForegroundColor Red; Write-Host "      $($c.Fix)" -ForegroundColor Gray }
+      }
+    }
+    -not ($findings | Where-Object { $_.Level -eq 'stop' })
+  }
+
   # ---- questions -------------------------------------------------------------
 
   function AskYes([string]$q, [bool]$default) {
@@ -351,6 +485,7 @@
       $resume = 'irm https://lerd.sh/install.ps1 | iex'
     }
     if ($Local) { $resume = "`$env:LERD_SETUP_LOCAL = '$($Local.Replace("'", "''"))'; $resume" }
+    $resume = "`$env:LERD_SETUP_RESUMED = '1'; $resume"
     New-Item -Path $RunOnceKey -Force | Out-Null
     Set-ItemProperty -Path $RunOnceKey -Name 'lerd-setup' -Value ("powershell.exe -NoProfile -ExecutionPolicy Bypass -NoExit -Command " + (Quote $resume))
     Write-Host ''
@@ -674,96 +809,203 @@ namespace LerdSetup {
     Run 'Handing over notifications' (WSLExe) (AsUser '~/.local/bin/lerd notify target native')
   }
 
+  function DashboardUp {
+    try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 http://127.0.0.1:7073/ | Out-Null; $true }
+    catch { [bool]$_.Exception.Response }
+  }
+
+  function WaitForDashboard([int]$seconds) {
+    $end = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $end) {
+      if (DashboardUp) { return $true }
+      Start-Sleep 2
+    }
+    $false
+  }
+
   # StartLerd restarts WSL so mirrored networking and the resolver handover take
-  # effect, boots the distro again, and waits for the dashboard to answer.
+  # effect, boots the distro again, and waits for the dashboard. One that stays
+  # down is restarted once; the checks after say so if it still is.
   function StartLerd {
-    Step 'Starting lerd...'
+    Step 'Restarting WSL, so its new network settings take effect'
     Run 'Starting lerd' (WSLExe) '--shutdown'
     Run 'Starting lerd' (WSLExe) "-d $Distro --exec /bin/true"
-    for ($i = 0; $i -lt 90; $i++) {
-      try {
-        Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 http://127.0.0.1:7073/ | Out-Null
-        return
-      } catch {
-        if ($_.Exception.Response) { return }
-        Start-Sleep 2
-      }
+    Step 'Waiting for the dashboard'
+    $S.DashboardUp = WaitForDashboard 120
+    if (-not $S.DashboardUp) {
+      Step 'The dashboard is slow to start, restarting it'
+      $null = Capture (WSLExe) (AsUser 'export XDG_RUNTIME_DIR=/run/user/$(id -u); systemctl --user reset-failed lerd-ui; systemctl --user restart lerd-ui')
+      $S.DashboardUp = WaitForDashboard 90
     }
-    throw 'The dashboard did not answer on 127.0.0.1:7073 within 3 minutes'
+  }
+
+  # ---- checks and finish -----------------------------------------------------
+
+  # Verify checks what a user does first, from Windows: the dashboard, a .test
+  # name, HTTPS trust, the commands on PATH, and what lerd doctor makes of it.
+  function Verify {
+    $checks = New-Object System.Collections.ArrayList
+    function Check($ok, $text, $fix) { [void]$checks.Add(@{ Level = $(if ($ok) { 'ok' } else { 'warn' }); Text = $text; Fix = $fix }) }
+
+    Check $S.DashboardUp 'The dashboard answers' 'Run lerd start in a new terminal, then open http://127.0.0.1:7073.'
+    if (-not $S.DNSLocalhost) {
+      $tld = Wired 'tld'
+      if (-not $tld) { $tld = 'test' }
+      $resolved = try { [Net.Dns]::GetHostAddresses("lerd-setup-check.$tld") | Where-Object { "$_" -in '127.0.0.1', '::1' } } catch { $null }
+      Check ([bool]$resolved) ".$tld sites resolve in Windows" 'Open System > Troubleshoot in the dashboard, or run lerd doctor --fix.'
+      $ca = Get-ChildItem Cert:\CurrentUser\Root -ErrorAction SilentlyContinue | Where-Object { $_.Subject -like '*mkcert*' }
+      Check ([bool]$ca) 'Your browsers trust lerd''s HTTPS certificates' 'Run lerd wsl:setup in Ubuntu and answer Yes when Windows asks to install the certificate.'
+    }
+    $bin = Join-Path $env:LOCALAPPDATA 'lerd\bin'
+    $onPath = ([Environment]::GetEnvironmentVariable('Path', 'User') -split ';') -contains $bin
+    $cmds = (Test-Path (Join-Path $bin 'lerd.exe')) -and (Test-Path (Join-Path $bin 'php.exe'))
+    Check ($onPath -and $cmds) 'lerd, php and composer are on your Windows PATH' 'Run lerd wsl:setup in Ubuntu.'
+    # An interactive shell, so the doctor sees the PATH a terminal has, lerd's shims included.
+    $r = Capture (WSLExe) ("-d $Distro -u $($S.LinuxUser) --cd ~ " + (Detached 'bash -ic' '~/.local/bin/lerd doctor --json'))
+    $rep = try { ($r.Lines -join "`n") | ConvertFrom-Json } catch { $null }
+    if ($rep) {
+      # A newer release is news, not a problem with this install.
+      $n = @($rep.findings | Where-Object { $_.status -in 'fail', 'warn' -and $_.section -ne 'Version Info' }).Count
+      Check ($n -eq 0) $(if ($n -eq 0) { 'lerd doctor finds nothing to fix' } else { "lerd doctor found $n thing(s) to look at" }) 'Open System > Troubleshoot in the dashboard: most have a Fix button.'
+    }
+    , $checks.ToArray()
+  }
+
+  # Finish is the last screen: whether lerd is ready, and the handful of things
+  # a new user wants next, where to click and what to type.
+  function Finish($checks, [TimeSpan]$took) {
+    $issues = @($checks | Where-Object { $_.Level -ne 'ok' }).Count
+    $sitesDir = "\\wsl.localhost\$Distro\home\$($S.LinuxUser)\Lerd"
+    $site = if ($S.DNSLocalhost) { 'http://my-app.localhost' } else { 'https://my-app.test' }
+    Write-Host ''
+    if ($issues -eq 0) {
+      Write-Host ("  Lerd is ready, set up in {0}." -f (Elapsed $took)) -ForegroundColor Green
+    } else {
+      Write-Host ("  Lerd is installed, set up in {0}. {1} thing(s) above need a look." -f (Elapsed $took), $issues) -ForegroundColor Yellow
+    }
+    Write-Host ''
+    Write-Host '  Dashboard     http://lerd.localhost, or the Lerd icon in your tray'
+    Write-Host "  Your sites    $sitesDir  (pinned in Explorer's Quick access)"
+    Write-Host "  First site    open $Distro from the Start menu, then:  cd ~/Lerd && lerd new my-app"
+    Write-Host "                and open $site in your browser"
+    Write-Host '  From Windows  open a new terminal: lerd, php and composer work there too'
+    Write-Host '  Need help?    System > Troubleshoot in the dashboard, or lerd doctor --fix'
+    Write-Host "  Setup log     $SetupLog"
   }
 
   # ---- main ------------------------------------------------------------------
 
-  Write-Host ''
-  Write-Host 'Lerd installer for Windows' -ForegroundColor White
-
-  if ([Environment]::OSVersion.Version.Build -lt 19041) {
-    Warn 'WSL 2 needs Windows 10 2004 (build 19041) or newer.'
-    return
-  }
-  if ([Environment]::OSVersion.Version.Build -lt 22621) {
-    Warn 'Mirrored networking needs Windows 11 22H2 or newer. Lerd will install, but .test sites may not open from Windows.'
-  }
-  Remove-ItemProperty -Path $RunOnceKey -Name 'lerd-setup' -ErrorAction SilentlyContinue
-
-  $Distro = PickDistro
-
-  # The user is asked for after the restart, so it is not typed twice.
-  if (-not (WSLFeaturesEnabled)) {
-    try { EnableFeatures } catch { Warn $_.Exception.Message; Warn 'Run the installer again to retry.' }
-    return
-  }
-
-  if ((WSLInstalled) -and (DistroInstalled)) { $S.LinuxUser = ExistingUser }
-  $S.UserExists = [bool]$S.LinuxUser
-  $S.LerdInstalled = $S.UserExists -and (LerdInstalledFor $S.LinuxUser)
-
-  if (-not $S.UserExists) {
-    AskUser
-  } elseif (-not (UserHasPassword $S.LinuxUser)) {
-    Info "The Linux user $($S.LinuxUser) has no password yet; choose one, sudo asks for it inside Linux."
-    AskPassword
-  } else {
-    Info "Using the existing Linux user $($S.LinuxUser)"
-  }
-  if (Test-Path $OptionsFile) {
-    $o = Get-Content $OptionsFile -Raw | ConvertFrom-Json
-    $S.DNSLocalhost = [bool]$o.DNSLocalhost
-    $S.ManageNode = [bool]$o.ManageNode
-    # Absent from a file an older installer saved, which never asked it.
-    if ($null -ne $o.MCP) { $S.MCP = [bool]$o.MCP }
-    $S.OptionsPending = $true
-  } elseif (-not $S.LerdInstalled) {
-    AskOptions
-    $null = New-Item -ItemType Directory -Force (Split-Path $OptionsFile)
-    @{ DNSLocalhost = $S.DNSLocalhost; ManageNode = $S.ManageNode; MCP = $S.MCP } | ConvertTo-Json | Set-Content $OptionsFile
-    $S.OptionsPending = $true
-  }
-
+  $null = New-Item -ItemType Directory -Force (Split-Path $SetupLog)
+  try { Start-Transcript -Path $SetupLog -Append | Out-Null } catch {}
+  $Total = [Diagnostics.Stopwatch]::StartNew()
+  # Set by the command that resumes the install after the restart WSL needs.
+  $Resumed = $env:LERD_SETUP_RESUMED -eq '1'
+  $Repair = [bool](Wired 'distro')
   try {
-    EnsureWSL
-    $Distro = PickDistro
-    EnsureDistro
-    EnsureUser
-    InstallPackages
-    InstallDesktopApp
-    GrantSudo
-    try { InstallLerd } finally { RemoveSudoers }
-    StartLerd
-    StartDesktopApp '--hidden'
-  } catch {
-    Write-Host ''
-    Write-Host "  The installer could not finish installing lerd: $($_.Exception.Message)" -ForegroundColor Red
-    Write-Host '  Run it again to resume from this step.'
-    return
-  }
 
-  Write-Host ''
-  Ok "lerd is running, and its icon is in the tray. Open a new terminal and the lerd command works from Windows too."
-  Write-Host "      Your sites live inside Linux, at \\wsl.localhost\$Distro\home\$($S.LinuxUser)."
-  Write-Host ''
-  Write-Host "  *  If lerd is useful to you, a GitHub star helps others find it:" -ForegroundColor Cyan
-  Write-Host "     https://github.com/$Repo"
-  Write-Host ''
-  if (AskYes 'Open Lerd now?' $true) { StartDesktopApp '' }
+    Write-Host ''
+    Write-Host 'Lerd installer for Windows' -ForegroundColor White
+    Write-Host ''
+    if ($Resumed) {
+      Write-Host '  Welcome back. WSL is on now, so the install carries on where it left off.'
+    } elseif ($Repair) {
+      Write-Host '  Lerd is already set up on this PC. This run checks every part and repairs what has'
+      Write-Host '  drifted; your sites, databases and settings stay as they are.'
+    } else {
+      Write-Host '  This sets up everything lerd needs, then connects it with Windows:'
+      Write-Host '    WSL 2 and Ubuntu, Podman, lerd itself and the Lerd desktop app,'
+      Write-Host '    .test domains with trusted HTTPS, and lerd, php and composer on your PATH.'
+      Write-Host ''
+      Write-Host '  It takes 15 to 30 minutes, mostly downloads. Windows may restart once and will ask you'
+      Write-Host '  to approve administrator access a few times. A few questions come first; after them'
+      Write-Host '  you can leave it running.'
+    }
+    Write-Host ''
+    Write-Host '  Checking this PC...' -ForegroundColor White
+    if (-not (ShowPreflight (PreflightFindings (PreflightFacts)))) {
+      Write-Host ''
+      Write-Host '  Nothing was changed. Fix what is marked X above, then run the installer again.' -ForegroundColor Red
+      return
+    }
+    Remove-ItemProperty -Path $RunOnceKey -Name 'lerd-setup' -ErrorAction SilentlyContinue
+    if (-not $Resumed -and -not $Repair) {
+      Write-Host ''
+      if (-not (AskYes 'Ready to begin?' $true)) {
+        Write-Host '  Nothing was changed. Run the installer again whenever you are ready.'
+        return
+      }
+    }
+
+    $Distro = PickDistro
+
+    # The user is asked for after the restart, so it is not typed twice.
+    if (-not (WSLFeaturesEnabled)) {
+      try { EnableFeatures } catch { Warn $_.Exception.Message; Warn 'Run the installer again to retry.' }
+      return
+    }
+
+    if ((WSLInstalled) -and (DistroInstalled)) { $S.LinuxUser = ExistingUser }
+    $S.UserExists = [bool]$S.LinuxUser
+    $S.LerdInstalled = $S.UserExists -and (LerdInstalledFor $S.LinuxUser)
+
+    if (-not $S.UserExists) {
+      AskUser
+    } elseif (-not (UserHasPassword $S.LinuxUser)) {
+      Info "The Linux user $($S.LinuxUser) has no password yet; choose one, sudo asks for it inside Linux."
+      AskPassword
+    } else {
+      Info "Using the existing Linux user $($S.LinuxUser)"
+    }
+    if (Test-Path $OptionsFile) {
+      $o = Get-Content $OptionsFile -Raw | ConvertFrom-Json
+      $S.DNSLocalhost = [bool]$o.DNSLocalhost
+      $S.ManageNode = [bool]$o.ManageNode
+      # Absent from a file an older installer saved, which never asked it.
+      if ($null -ne $o.MCP) { $S.MCP = [bool]$o.MCP }
+      $S.OptionsPending = $true
+    } elseif (-not $S.LerdInstalled) {
+      AskOptions
+      $null = New-Item -ItemType Directory -Force (Split-Path $OptionsFile)
+      @{ DNSLocalhost = $S.DNSLocalhost; ManageNode = $S.ManageNode; MCP = $S.MCP } | ConvertTo-Json | Set-Content $OptionsFile
+      $S.OptionsPending = $true
+    }
+
+    Write-Host ''
+    Write-Host '  That is everything to ask. The rest runs by itself; approve Windows'' prompts when they appear.' -ForegroundColor White
+
+    try {
+      Phase 1 { EnsureWSL }
+      $Distro = PickDistro
+      Phase 2 { EnsureDistro }
+      Phase 3 { EnsureUser }
+      Phase 4 { InstallPackages }
+      Phase 5 { InstallDesktopApp }
+      Phase 6 {
+        Info 'The first install downloads lerd''s containers and prepares PHP, which can take a while; its progress shows below.'
+        GrantSudo
+        try { InstallLerd } finally { RemoveSudoers }
+      }
+      Phase 7 { StartLerd; StartDesktopApp '--hidden' }
+    } catch {
+      Write-Host ''
+      Write-Host "  The install stopped while: $($S.Phase)" -ForegroundColor Red
+      Write-Host "  Why: $($_.Exception.Message)" -ForegroundColor Red
+      Write-Host ''
+      Write-Host '  Run the installer again. It skips everything already done and picks up from here.'
+      Write-Host "  If it stops again, the setup log at $SetupLog says more;"
+      Write-Host "  attach it to a report at https://github.com/$Repo/issues."
+      return
+    }
+    Phase 8 { $S.Checks = Verify; $null = ShowPreflight $S.Checks }
+
+    Finish $S.Checks $Total.Elapsed
+    Write-Host ''
+    Write-Host "  *  If lerd is useful to you, a GitHub star helps others find it:" -ForegroundColor Cyan
+    Write-Host "     https://github.com/$Repo"
+    Write-Host ''
+    if (AskYes 'Open Lerd now?' $true) { StartDesktopApp '' }
+
+  } finally {
+    try { Stop-Transcript | Out-Null } catch {}
+  }
 }
