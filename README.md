@@ -107,7 +107,7 @@ Lerd is built for PHP developers who want frictionless local development, on a L
 
 ### Health and upkeep
 
-- 🧰 **Environment doctor** (`lerd doctor`). Checks the host lerd itself depends on and repairs what it safely can with `--fix`: missing directories, linger, a missing PHP image, the DNS wiring. Anything needing sudo is printed as a command and never run for you, and `--dry-run` shows it first.
+- 🧰 **Environment doctor** (`lerd doctor`). Checks the host lerd itself depends on and repairs what it safely can with `--fix`: missing directories, linger, a missing PHP image, the DNS wiring, and on Windows the WSL side and Windows' own (the agent, the `.test` DNS rule, certificate trust, `.wslconfig`, stale shims, PATH order). The dashboard's **System → Troubleshoot** runs the same checks with a Fix button per problem. Anything needing sudo is printed as a command and never run for you, fixes that raise a Windows prompt always ask first, and `--dry-run` shows it all first.
 
 - 🩺 **Site doctor.** Framework-agnostic health checks (env drift, application key, composer and node state, security audits, database presence, PHP version range) plus extra checks for your framework, each with a one-click fix, from the web UI, the TUI, `lerd site:doctor` and MCP.
 
@@ -167,7 +167,7 @@ Twelve grouped tools, each driven by an `action`: `site`, `service`, `db`, `env`
 
 🟡 DDEV runs on Docker by default and can also use Podman as an alternative runtime; Lerd is built exclusively for rootless Podman.
 
-🪟 On Windows, `Install-Lerd.exe` sets up WSL2, Lerd and the desktop app in one go, see the [Windows (WSL2) guide](https://lerd.sh/getting-started/wsl2). Laragon runs natively on Windows and has no Linux or macOS build, see [Laragon for Linux](https://lerd.sh/getting-started/laragon-linux) if that is what brought you here.
+🪟 On Windows, `Install-Lerd.exe` or one PowerShell command sets up WSL2, Lerd and the desktop app in one go, see [Lerd for Windows](https://lerd.sh/getting-started/windows). Laragon runs natively on Windows and has no Linux or macOS build, see [Laragon for Linux](https://lerd.sh/getting-started/laragon-linux) if that is what brought you here.
 
 ## Install
 
@@ -266,7 +266,22 @@ The [`lerd-nixos`](https://github.com/lerd-env/lerd-nixos) flake packages the bi
 
 ### Windows
 
-Download [`Install-Lerd.exe`](https://github.com/lerd-env/lerd-desktop/releases/latest/download/Install-Lerd.exe) and run it. The wizard sets up WSL2, the newest Ubuntu LTS with your Linux user, lerd and the Lerd desktop app, which holds the tray and notifications on Windows. Already running WSL? Install lerd inside your distro as on Linux, then run `lerd wsl:setup`. See the [Windows (WSL2) guide](https://lerd.sh/getting-started/wsl2) for every step.
+Lerd runs on Windows through WSL2, on Windows 10 2004 or newer. Windows 11 22H2 or newer is recommended, since older builds have no mirrored networking and `.test` sites may not open from Windows browsers. Pick one:
+
+- **Installer.** Download [`Install-Lerd.exe`](https://github.com/lerd-env/lerd-desktop/releases/latest/download/Install-Lerd.exe) and run it. The wizard sets up WSL2, the newest Ubuntu LTS with your Linux user, lerd and the Lerd desktop app, which holds the tray and notifications on Windows.
+- **PowerShell.** In a normal (not administrator) PowerShell window it takes the same steps, asking for administrator rights only where Windows needs them:
+
+  ```powershell
+  irm https://lerd.sh/install.ps1 | iex
+  ```
+
+- **Existing WSL distro.** Install lerd inside Ubuntu 22.04+ or Debian 12+ with systemd as on Linux, then run `lerd wsl:setup` to wire it into Windows.
+
+Either installer restarts Windows once if WSL needs enabling and carries on by itself after you sign back in, and running it again after a failure resumes where it stopped. What you get on the Windows side: `.test` domains in every Windows browser, wildcards included; lerd's certificate authority trusted by Windows; `lerd.exe`, `php.exe`, `composer.exe` and `node.exe` on your PATH for PhpStorm or VS Code, with Xdebug's session variables carried through to PHP; lerd starting at login; and database clients such as TablePlus or HeidiSQL connecting on `127.0.0.1`. Keep projects on the Linux disk (`\\wsl.localhost\Ubuntu\home\<you>`) rather than under `C:\`, where file access is many times slower.
+
+When something stops working, open **System → Troubleshoot** in the dashboard or run `lerd doctor --fix`: it checks the Windows side too (the agent, the `.test` DNS rule, certificate trust, `.wslconfig`, stale `.exe` shims, and another PHP coming first on your PATH) and repairs what it can, asking first when Windows will show an administrator or trust prompt.
+
+See [Lerd for Windows](https://lerd.sh/getting-started/windows) for an overview and the [Windows (WSL2) guide](https://lerd.sh/getting-started/wsl2) for every step.
 
 > [!NOTE]
 > See the [installation docs](https://lerd.sh/getting-started/installation) for details.
