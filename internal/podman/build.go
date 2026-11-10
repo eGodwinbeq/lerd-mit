@@ -489,17 +489,26 @@ func tryPullBaseImage(version string, w io.Writer) string {
 	// keeps pulling across the org move without a rebuild.
 	var lastErr string
 	for _, ref := range origin.BaseImageRefs(short, hash) {
-		cmd := execCommand(PodmanBin(), basePullArgs(ref, authFile)...)
-		cmd.Stdout = w
-		// Capture stderr instead of discarding it: a swallowed pull failure
-		// (a 404, a network or storage error) used to surface only as a
-		// confusing full local build with no reason given.
-		var stderr strings.Builder
-		cmd.Stderr = &stderr
-		if err := cmd.Run(); err == nil {
-			return ref
-		} else if s := strings.TrimSpace(stderr.String()); s != "" {
-			lastErr = pullErrLine(s)
+		for attempt := 1; attempt <= 2; attempt++ {
+			cmd := execCommand(PodmanBin(), basePullArgs(ref, authFile)...)
+			cmd.Stdout = w
+			// Capture stderr instead of discarding it: a swallowed pull failure
+			// (a 404, a network or storage error) used to surface only as a
+			// confusing full local build with no reason given.
+			var stderr strings.Builder
+			cmd.Stderr = &stderr
+			if err := cmd.Run(); err == nil {
+				return ref
+			}
+			if s := strings.TrimSpace(stderr.String()); s != "" {
+				lastErr = pullErrLine(s)
+			}
+			// A missing image stays missing; anything else may be the network.
+			if attempt == 2 || pullImageMissing(lastErr) {
+				break
+			}
+			fmt.Fprintf(w, "  Pull failed (%s), trying once more...\n", lastErr)
+			time.Sleep(pullRetryDelay)
 		}
 	}
 	if lastErr != "" {
@@ -508,6 +517,16 @@ func tryPullBaseImage(version string, w io.Writer) string {
 		fmt.Fprintf(w, "  Pre-built image unavailable, falling back to local build (may take a few minutes)...\n")
 	}
 	return ""
+}
+
+// pullRetryDelay is the pause before retrying a failed base pull; a seam for tests.
+var pullRetryDelay = 5 * time.Second
+
+// pullImageMissing reports a pull failure that says the image does not exist,
+// which a retry cannot change.
+func pullImageMissing(errLine string) bool {
+	l := strings.ToLower(errLine)
+	return strings.Contains(l, "manifest unknown") || strings.Contains(l, "not found")
 }
 
 // pullErrLine extracts the most informative line of a podman pull failure: the

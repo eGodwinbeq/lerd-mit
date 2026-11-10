@@ -713,3 +713,44 @@ func TestMkcertTrustBlock(t *testing.T) {
 		t.Error("the NSS import must come after the CA file is in place")
 	}
 }
+
+// A pull that fails on the network gets one more try: falling back to a full
+// local build costs the user several minutes, a retry a few seconds.
+func TestBaseImagePullRetriesATransientFailure(t *testing.T) {
+	prevExec, prevDelay := execCommand, pullRetryDelay
+	t.Cleanup(func() { execCommand, pullRetryDelay = prevExec, prevDelay })
+	pullRetryDelay = 0
+	calls := 0
+	execCommand = func(name string, args ...string) *exec.Cmd {
+		calls++
+		if calls == 1 {
+			return fakeExec("", "Error: initializing source: pinging container registry ghcr.io: i/o timeout", 125)(name, args...)
+		}
+		return fakeExec("", "", 0)(name, args...)
+	}
+	var buf strings.Builder
+	if got := tryPullBaseImage("8.5", &buf); got == "" {
+		t.Fatalf("a transient failure must be retried before a local build; log:\n%s", buf.String())
+	}
+	if calls != 2 {
+		t.Errorf("pull ran %d times, want 2", calls)
+	}
+}
+
+func TestBaseImagePullDoesNotRetryAMissingImage(t *testing.T) {
+	prevExec, prevDelay := execCommand, pullRetryDelay
+	t.Cleanup(func() { execCommand, pullRetryDelay = prevExec, prevDelay })
+	pullRetryDelay = 0
+	calls := 0
+	execCommand = func(name string, args ...string) *exec.Cmd {
+		calls++
+		return fakeExec("", "Error: manifest unknown", 1)(name, args...)
+	}
+	var buf strings.Builder
+	if got := tryPullBaseImage("8.5", &buf); got != "" {
+		t.Fatalf("pulled %q from a registry that has no such image", got)
+	}
+	if calls != 1 {
+		t.Errorf("a missing image was pulled %d times, want 1", calls)
+	}
+}
