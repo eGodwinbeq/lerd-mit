@@ -81,3 +81,17 @@ func TestReadGlobalMCPAnswer(t *testing.T) {
 		}
 	}
 }
+
+// The Windows installer asks the MCP question with its other choices before
+// running install.sh, and says so with LERD_MCP_ASKED=1 so install does not
+// stop halfway to ask again.
+func TestMCPAskedByCaller(t *testing.T) {
+	t.Setenv("LERD_MCP_ASKED", "")
+	if mcpAskedByCaller() {
+		t.Error("no caller said it asked, so install should offer")
+	}
+	t.Setenv("LERD_MCP_ASKED", "1")
+	if !mcpAskedByCaller() {
+		t.Error("LERD_MCP_ASKED=1 means the caller asked already")
+	}
+}

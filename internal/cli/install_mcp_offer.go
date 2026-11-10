@@ -48,6 +48,13 @@ func saveGlobalMCPDeclined(declined bool) {
 	}
 }
 
+// mcpAskedByCaller reports an installer that asked the MCP question with its
+// other choices, as the Windows one does. An env var rather than a flag, so an
+// older lerd ignores it instead of failing.
+func mcpAskedByCaller() bool {
+	return os.Getenv("LERD_MCP_ASKED") == "1"
+}
+
 // offerGlobalMCP asks on install and update whether to register lerd's MCP
 // server with the AI assistants. Unattended or terminal-less runs never ask:
 // writing into AI client configs needs a yes from a person.

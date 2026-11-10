@@ -50,7 +50,7 @@
   # What the steps learn and the answers they act on. A table, so the functions
   # below change it in place instead of reaching for $script: scope, which `irm
   # | iex` would make the caller's own session.
-  $S = @{ LinuxUser = ''; Password = $null; UserExists = $false; LerdInstalled = $false; DNSLocalhost = $false; ManageNode = $true; OptionsPending = $false }
+  $S = @{ LinuxUser = ''; Password = $null; UserExists = $false; LerdInstalled = $false; DNSLocalhost = $false; ManageNode = $true; MCP = $null; OptionsPending = $false }
   # Choices wait here until applied, so a run cut off after install.sh still applies them.
   $OptionsFile = Join-Path $env:LOCALAPPDATA 'lerd\setup-options.json'
 
@@ -329,7 +329,10 @@
     Write-Host ''
     Write-Host '  lerd can install Node.js per project and put node, npm and npx shims on PATH.'
     $S.ManageNode = AskYes 'Let lerd manage Node.js versions?' $true
-    Write-Host '  Both can be changed later, from the dashboard or the lerd command.'
+    Write-Host ''
+    Write-Host '  AI assistants such as Claude Code, Cursor or Codex can manage lerd through its MCP server.'
+    $S.MCP = AskYes 'Let your AI assistants use lerd through MCP?' $true
+    Write-Host '  Each can be changed later, from the dashboard or the lerd command.'
   }
 
   # ---- steps -----------------------------------------------------------------
@@ -616,6 +619,12 @@ namespace LerdSetup {
       Step 'Applying your options...'
       Run 'Applying your options' (WSLExe) (AsUser '~/.local/bin/lerd node:unmanage')
     }
+    # disable-global on a no records it, so lerd update does not ask again.
+    if ($null -ne $S.MCP) {
+      Step 'Applying your options...'
+      $mcp = if ($S.MCP) { 'mcp:enable-global' } else { 'mcp:disable-global' }
+      Run 'Applying your options' (WSLExe) (AsUser "~/.local/bin/lerd $mcp")
+    }
     Remove-Item $OptionsFile -ErrorAction SilentlyContinue
   }
 
@@ -646,10 +655,12 @@ namespace LerdSetup {
   # InstallLerd runs lerd's own installer inside the distro, so Windows gets
   # what every Linux machine gets.
   function InstallLerd {
+    # The MCP question was asked up front, so lerd install must not stop to ask it.
+    $asked = if ($null -ne $S.MCP) { 'LERD_MCP_ASKED=1 ' } else { '' }
     if ($Local) {
-      $body = "cd `"`$(wslpath $(Sh $Local))`" && bash install.sh --local ./lerd"
+      $body = "cd `"`$(wslpath $(Sh $Local))`" && ${asked}bash install.sh --local ./lerd"
     } else {
-      $body = 'curl -fsSL https://lerd.sh/install.sh | bash'
+      $body = "curl -fsSL https://lerd.sh/install.sh | ${asked}bash"
     }
     Step "Installing lerd inside $Distro..."
     Run 'Installing lerd' (WSLExe) (AsUser $body)
@@ -719,11 +730,13 @@ namespace LerdSetup {
     $o = Get-Content $OptionsFile -Raw | ConvertFrom-Json
     $S.DNSLocalhost = [bool]$o.DNSLocalhost
     $S.ManageNode = [bool]$o.ManageNode
+    # Absent from a file an older installer saved, which never asked it.
+    if ($null -ne $o.MCP) { $S.MCP = [bool]$o.MCP }
     $S.OptionsPending = $true
   } elseif (-not $S.LerdInstalled) {
     AskOptions
     $null = New-Item -ItemType Directory -Force (Split-Path $OptionsFile)
-    @{ DNSLocalhost = $S.DNSLocalhost; ManageNode = $S.ManageNode } | ConvertTo-Json | Set-Content $OptionsFile
+    @{ DNSLocalhost = $S.DNSLocalhost; ManageNode = $S.ManageNode; MCP = $S.MCP } | ConvertTo-Json | Set-Content $OptionsFile
     $S.OptionsPending = $true
   }
 

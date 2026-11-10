@@ -1120,7 +1120,7 @@ func runInstall(cmd *cobra.Command, _ []string) error {
 
 	refreshStoreFrameworks(storeIndex)
 	refreshGlobalMCPSkills()
-	offerGlobalMCP(unattended, defaultGlobalMCPOffer())
+	offerGlobalMCP(unattended || mcpAskedByCaller(), defaultGlobalMCPOffer())
 	refreshProjectMCPSkills()
 
 	// A service whose preset declares a domain takes it here as well as at start.
