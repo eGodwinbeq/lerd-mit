@@ -579,6 +579,44 @@ function presetInstallStream(name: string, version: string): Response {
   return new Response(body, { status: 200, headers: { 'content-type': 'application/x-ndjson' } });
 }
 
+type DemoFinding = { section: string; name: string; status: string; message?: string; fix?: Record<string, string>; output?: string[] };
+const DOCTOR_FINDINGS: DemoFinding[] = [
+  { section: 'Prerequisites', name: 'podman installed', status: 'ok' },
+  { section: 'Prerequisites', name: 'systemd user session', status: 'ok' },
+  { section: 'WSL2', name: 'podman events_logger journald', status: 'warn', message: 'log views fail with --follow on WSL', fix: { tier: 'auto', key: 'wsl-podman-logger', label: 'set events_logger = "journald" in ~/.config/containers/containers.conf' }, output: ['setting events_logger = "journald" in containers.conf'] },
+  { section: 'WSL2', name: '.wslconfig settings', status: 'ok' },
+  { section: 'WSL2', name: 'lerd.exe and shims up to date', status: 'warn', message: 'the Windows copies are behind this lerd, or a shim has no .exe yet', fix: { tier: 'auto', key: 'windows-refresh', label: "copy this lerd's lerd.exe and shim .exe files to Windows" }, output: ['copying lerd.exe and the shim .exe files to Windows'] },
+  { section: 'WSL2', name: 'Windows agent running', status: 'warn', message: 'nothing boots WSL at login or answers site lookups in Windows', fix: { tier: 'auto', key: 'windows-agent', label: 'start the lerd agent' }, output: ['starting the Lerd desktop app, which runs the agent'] },
+  { section: 'WSL2', name: '.test routed to lerd in Windows', status: 'fail', message: 'Windows has no DNS rule sending .test to lerd, so sites do not open in Windows browsers', fix: { tier: 'auto', key: 'windows-dns', label: 'add the Windows DNS rule for .test', confirm: 'Windows asks for administrator rights.' }, output: ['  → routing .test to lerd in Windows DNS, approve the admin prompt on the Windows desktop', 'Windows resolves *.test through lerd'] },
+  { section: 'WSL2', name: "lerd's CA trusted by Windows", status: 'ok' },
+  { section: 'WSL2', name: "lerd's php and composer first on the Windows PATH", status: 'warn', message: 'php runs from C:\\xampp\\php, so Windows tools and IDEs use that instead of lerd', fix: { tier: 'manual', label: 'remove those folders from the system PATH (System Properties, Environment Variables), or uninstall the other PHP' } },
+  { section: 'DNS', name: 'lerd-dns running', status: 'ok' },
+  { section: 'Ports', name: 'port 443 free for nginx', status: 'ok' },
+];
+
+function doctorReport() {
+  const findings = DOCTOR_FINDINGS.map(({ output: _o, ...f }) => f);
+  return {
+    version: version.current,
+    findings,
+    failures: findings.filter((f) => f.status === 'fail').length,
+    warnings: findings.filter((f) => f.status === 'warn').length,
+  };
+}
+
+function doctorFixStream(req: { key?: string; name?: string }): Response {
+  const f = DOCTOR_FINDINGS.find((x) => x.fix?.tier === 'auto' && x.fix.key === req.key && x.name === req.name);
+  if (!f) return new Response('that fix no longer applies, run the checks again', { status: 409 });
+  const lines = (f.output ?? []).map((line) => JSON.stringify({ phase: 'output', line }));
+  f.status = 'ok';
+  delete f.message;
+  delete f.fix;
+  return new Response([...lines, JSON.stringify({ phase: 'done' })].join('\n') + '\n', {
+    status: 200,
+    headers: { 'content-type': 'application/x-ndjson' },
+  });
+}
+
 const DEMO_EVENTS = demoRequestEvents();
 
 // Every checkout reports some local work and a commit to pull, so the site
@@ -628,6 +666,10 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
     const page = docsFixture.pages.find((p) => p.route === route);
     return page ? jsonResponse(page) : new Response('not found', { status: 404 });
   }
+
+  // System → Troubleshoot: a WSL install with drift, whose fixes turn green.
+  if (path === '/api/doctor') return jsonResponse(doctorReport());
+  if (path === '/api/doctor/fix' && method === 'POST') return doctorFixStream(JSON.parse(String(init?.body ?? '{}')));
 
   // Live (mutable) collections
   if (path === '/api/sites') return jsonResponse(sites);
