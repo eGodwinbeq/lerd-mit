@@ -121,6 +121,31 @@ func pathShadows(hits []pathHit, lerdDir string) []pathHit {
 	return out
 }
 
+// windowsHitsToCheck drops node when the user keeps Node.js for themselves: then
+// their own node first on the PATH is what they chose, not a problem.
+func windowsHitsToCheck(hits []pathHit, nodeManaged bool) []pathHit {
+	if nodeManaged {
+		return hits
+	}
+	var out []pathHit
+	for _, h := range hits {
+		if h.Name != "node" {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// nodeManagedByLerd reports lerd managing Node.js, its default until told otherwise.
+func nodeManagedByLerd() bool {
+	cfg, err := config.LoadGlobal()
+	if err != nil {
+		return true
+	}
+	managed, set := cfg.NodeManagedPref()
+	return managed || !set
+}
+
 // shadowsNeedAdmin reports a shadow on the system PATH, which Windows puts
 // before the user's and only an administrator can change.
 func shadowsNeedAdmin(shadows []pathHit) bool {
@@ -272,9 +297,10 @@ func checkWindowsSide(s findingSink, tld string) {
 		s.ok("Windows Terminal font")
 	}
 
-	shadows := pathShadows(p.hits, lerdDir)
+	hits := windowsHitsToCheck(p.hits, nodeManagedByLerd())
+	shadows := pathShadows(hits, lerdDir)
 	if len(shadows) == 0 {
-		if len(p.hits) > 0 {
+		if len(hits) > 0 {
 			s.ok("lerd's php and composer first on the Windows PATH")
 		}
 		return

@@ -36,7 +36,7 @@ func TestHandleDoctorReturnsReportWithoutFixArgs(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", w.Code, w.Body)
 	}
-	var rep cli.DoctorReport
+	var rep wireReport
 	if err := json.Unmarshal(w.Body.Bytes(), &rep); err != nil {
 		t.Fatal(err)
 	}
@@ -157,11 +157,11 @@ func TestHandleDoctorShowsInstallAsManual(t *testing.T) {
 	})
 	w := httptest.NewRecorder()
 	handleDoctor(w, localRequest(http.MethodGet, "/api/doctor", ""))
-	var rep cli.DoctorReport
+	var rep wireReport
 	if err := json.Unmarshal(w.Body.Bytes(), &rep); err != nil {
 		t.Fatal(err)
 	}
-	if fx := rep.Findings[0].Fix; fx == nil || fx.Tier != cli.FixManual || !strings.Contains(fx.Label, "lerd install") {
+	if fx := rep.Findings[0].Fix; fx == nil || fx.Tier != "manual" || !strings.Contains(fx.Label, "lerd install") {
 		t.Errorf("install should be offered as a command to run, got %+v", fx)
 	}
 	w = httptest.NewRecorder()
@@ -200,4 +200,17 @@ func TestHandleDoctorFixRefusesWhileAnotherRuns(t *testing.T) {
 	if w.Code != http.StatusConflict {
 		t.Errorf("status %d, want 409 while another fix runs", w.Code)
 	}
+}
+
+// wireReport is the report as the dashboard receives it, a fix's tier spelled
+// out as "auto" or "manual" rather than cli.FixTier's number.
+type wireReport struct {
+	Findings []struct {
+		Name string `json:"name"`
+		Fix  *struct {
+			Tier  string `json:"tier"`
+			Key   string `json:"key"`
+			Label string `json:"label"`
+		} `json:"fix"`
+	} `json:"findings"`
 }

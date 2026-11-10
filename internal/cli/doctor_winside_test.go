@@ -189,3 +189,14 @@ func TestWindowsProbeScriptFont(t *testing.T) {
 		t.Errorf("no font named, nothing to check:\n%s", s)
 	}
 }
+
+func TestWindowsHitsToCheck(t *testing.T) {
+	hits := []pathHit{{Name: "php"}, {Name: "composer"}, {Name: "node", Scope: "machine", Dir: `C:\Program Files\nodejs`}}
+	if got := windowsHitsToCheck(hits, true); len(got) != 3 {
+		t.Errorf("lerd manages Node, so node is checked too: %+v", got)
+	}
+	got := windowsHitsToCheck(hits, false)
+	if len(got) != 2 || got[0].Name != "php" || got[1].Name != "composer" {
+		t.Errorf("with Node left to the user, their own node first on PATH is no problem: %+v", got)
+	}
+}
